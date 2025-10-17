@@ -1,0 +1,562 @@
+import pygame
+import sys
+import json
+import os
+import hashlib
+
+# Inicialização do Pygame
+pygame.init()
+
+# --------------------
+# Configurações Globais
+# --------------------
+SCREEN_WIDTH = 1100
+SCREEN_HEIGHT = 700
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Crônicas de Eldoria - Login do Herói")
+CLOCK = pygame.time.Clock()
+FPS = 60
+
+# --------------------
+# Paleta Medieval (Cores)
+# --------------------
+DARK_BROWN = (50, 30, 15)
+MEDIEVAL_BROWN = (101, 67, 33)
+GOLD_DARK = (139, 105, 0)
+GOLD_LIGHT = (200, 160, 0)
+PERCHMENT_TEXT = (50, 40, 20)
+PERCHMENT_BG = (245, 222, 179)
+SHADOW = (10, 10, 10, 100)
+SUCCESS_GREEN = (0, 100, 0)
+ERROR_RED = (150, 0, 0)
+BUTTON_BASE = (101, 67, 33)
+BUTTON_HOVER = (139, 115, 85)
+
+# --------------------
+# Fontes
+# --------------------
+font = pygame.font.SysFont('timesnewroman', 28)
+small_font = pygame.font.SysFont('timesnewroman', 22)
+title_font = pygame.font.SysFont('timesnewroman', 42, bold=True)
+
+# --------------------
+# Música
+# --------------------
+
+
+musica_fundo = pygame.mixer.music.load('Lightning Traveler - Inspiring Epic.mp3.mp3') 
+pygame.mixer.music.play(-1)
+
+
+# --------------------
+# Funções de Ajuda
+# --------------------
+def load_background_image(path, size):
+    """Carrega imagem de fundo com fallback para uma cor sólida."""
+    try:
+        if not os.path.exists(path):
+             raise FileNotFoundError
+        img = pygame.image.load(path).convert_alpha()
+        return pygame.transform.scale(img, size)
+    except (pygame.error, FileNotFoundError, Exception) as e:
+        print(f"Aviso: Imagem de fundo '{path}' não carregada ({e}). Usando cor sólida.")
+        s = pygame.Surface(size)
+        s.fill(DARK_BROWN)
+        return s
+
+# >>> CORREÇÃO DA IMAGEM: Usa o nome do arquivo que você enviou. <<<
+BACKGROUND_IMAGE = load_background_image("tela_fundo.jpg", (SCREEN_WIDTH, SCREEN_HEIGHT))
+
+# ----------------------------------------------------
+# Retângulo da Área de Conteúdo do Pergaminho
+# Esta é a área onde os inputs, botões e textos aparecerão.
+# Ajuste se sua imagem tiver um formato diferente.
+# ----------------------------------------------------
+PERGAMINO_CONTENT_RECT = pygame.Rect(110, 60, 680, 480) 
+
+# --------------------
+# CLASSES (mantidas)
+# --------------------
+
+class Jogador:
+    def __init__(self, id_jogador, nome_usuario, email, senha):
+        self.id_jogador = id_jogador
+        self.nome_usuario = nome_usuario
+        self.email = email
+        self.senha = self._hash_senha(senha)
+        self.personagens = []
+        self.personagem_selecionado = None
+
+    def _hash_senha(self, senha):
+        return hashlib.sha256(senha.encode()).hexdigest()
+
+    def verificar_senha(self, senha):
+        return self.senha == hashlib.sha256(senha.encode()).hexdigest()
+    
+    def criar_personagem(self): pass
+    def selecionar_personagem(self, personagem): self.personagem_selecionado = personagem
+    def iniciar_jogo(self): return bool(self.personagem_selecionado)
+    def desconectar(self): self.personagem_selecionado = None
+
+    def to_dict(self):
+        return {
+            'id_jogador': self.id_jogador,
+            'nome_usuario': self.nome_usuario,
+            'email': self.email,
+            'senha': self.senha,
+            'personagens': self.personagens
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        jogador = cls(data['id_jogador'], data['nome_usuario'], data['email'], '')
+        jogador.senha = data['senha']
+        jogador.personagens = data.get('personagens', [])
+        return jogador
+
+class GerenciadorJogadores:
+    def __init__(self):
+        self.arquivo_dados = 'jogadores.json'
+        self.jogadores = []
+        self.carregar_jogadores()
+
+    def carregar_jogadores(self):
+        if os.path.exists(self.arquivo_dados):
+            try:
+                with open(self.arquivo_dados, 'r', encoding='utf-8') as f:
+                    dados = json.load(f)
+                    self.jogadores = [Jogador.from_dict(jogador_data) for jogador_data in dados]
+            except (json.JSONDecodeError, KeyError):
+                self.jogadores = []
+        else:
+            self.jogadores = []
+
+    def salvar_jogadores(self):
+        with open(self.arquivo_dados, 'w', encoding='utf-8') as f:
+            json.dump([jogador.to_dict() for jogador in self.jogadores], f, indent=4, ensure_ascii=False)
+
+    def proximo_id(self):
+        if not self.jogadores: return 1
+        return max(jogador.id_jogador for jogador in self.jogadores) + 1
+
+    def usuario_existe(self, nome_usuario, email):
+        for jogador in self.jogadores:
+            if jogador.nome_usuario.lower() == nome_usuario.lower() or jogador.email.lower() == email.lower():
+                return True
+        return False
+
+    def cadastrar_jogador(self, nome_usuario, email, senha):
+        if self.usuario_existe(nome_usuario, email):
+            return False, "Usuário ou email já existem!"
+        if len(senha) < 6:
+            return False, "A senha deve ter pelo menos 6 caracteres!"
+        
+        novo_jogador = Jogador(self.proximo_id(), nome_usuario, email, senha)
+        self.jogadores.append(novo_jogador)
+        self.salvar_jogadores()
+        return True, "Herói forjado! Cadastro realizado com sucesso!"
+
+    def fazer_login(self, nome_usuario, senha):
+        for jogador in self.jogadores:
+            if jogador.nome_usuario.lower() == nome_usuario.lower() and jogador.verificar_senha(senha):
+                return True, jogador
+        return False, "Credenciais de Herói inválidas!"
+
+class InputBox:
+    def __init__(self, x, y, width, height, text='', placeholder='', is_password=False):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.color = MEDIEVAL_BROWN
+        self.text = text
+        self.placeholder = placeholder
+        self.is_password = is_password
+        self.active = False
+        self.cursor_visible = True
+        self.timer = 0
+        self.update_surface()
+
+    def update_surface(self):
+        display_text = '*' * len(self.text) if self.is_password else self.text
+        text_color = PERCHMENT_TEXT
+        
+        if self.active and self.cursor_visible:
+            display_text += '|'
+            
+        if not self.text and not self.active:
+            self.txt_surface = font.render(self.placeholder, True, GOLD_DARK)
+        else:
+            self.txt_surface = font.render(display_text, True, text_color)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            self.active = self.rect.collidepoint(event.pos)
+            self.color = GOLD_LIGHT if self.active else MEDIEVAL_BROWN
+            self.cursor_visible = True
+            self.timer = 0
+            self.update_surface()
+                
+        if event.type == pygame.KEYDOWN:
+            if self.active:
+                self.cursor_visible = True
+                self.timer = 0
+                if event.key == pygame.K_BACKSPACE:
+                    self.text = self.text[:-1]
+                else:
+                    if len(self.text) < 30 and event.unicode.isprintable():
+                        self.text += event.unicode
+                self.update_surface()
+                return self.text
+
+    def update(self):
+        if self.active:
+            self.timer += CLOCK.get_time()
+            if self.timer > 500:
+                self.cursor_visible = not self.cursor_visible
+                self.timer = 0
+                self.update_surface()
+
+    def draw(self, screen):
+        pygame.draw.rect(screen, PERCHMENT_BG, self.rect)
+        pygame.draw.rect(screen, self.color, self.rect, 3, border_radius=5)
+        
+        text_y = self.rect.y + (self.rect.height - self.txt_surface.get_height()) // 2
+        screen.blit(self.txt_surface, (self.rect.x + 10, text_y))
+
+class Button:
+    def __init__(self, x, y, width, height, text, color, hover_color):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.color = color
+        self.hover_color = hover_color
+        self.current_color = color
+        self.txt_surface = font.render(text, True, PERCHMENT_BG)
+
+    def draw(self, screen):
+        shadow_rect = self.rect.move(2, 2)
+        pygame.draw.rect(screen, SHADOW, shadow_rect, border_radius=8)
+        
+        pygame.draw.rect(screen, self.current_color, self.rect, border_radius=8)
+        pygame.draw.rect(screen, DARK_BROWN, self.rect, 3, border_radius=8)
+        
+        text_rect = self.txt_surface.get_rect(center=self.rect.center)
+        screen.blit(self.txt_surface, text_rect)
+
+    def is_hovered(self, pos):
+        return self.rect.collidepoint(pos)
+
+    def handle_event(self, event, callback):
+        if event.type == pygame.MOUSEMOTION:
+            self.current_color = self.hover_color if self.is_hovered(event.pos) else self.color
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.is_hovered(event.pos):
+                callback()
+                return True
+        return False
+
+# --------------------
+# TELAS DO JOGO
+# --------------------
+
+class TelaLogin:
+    def __init__(self, gerenciador):
+        self.gerenciador = gerenciador
+        
+        content_center_x = PERGAMINO_CONTENT_RECT.centerx
+        content_top = PERGAMINO_CONTENT_RECT.top
+
+        INPUT_WIDTH = 350
+        INPUT_HEIGHT = 45
+        
+        self.username_box = InputBox(content_center_x - INPUT_WIDTH // 2, content_top + 150, INPUT_WIDTH, INPUT_HEIGHT, placeholder='Nome de Usuário')
+        self.password_box = InputBox(content_center_x - INPUT_WIDTH // 2, content_top + 230, INPUT_WIDTH, INPUT_HEIGHT, placeholder='Senha Secreta', is_password=True)
+        
+        BUTTON_WIDTH = 280
+        BUTTON_HEIGHT = 55
+        self.login_button = Button(content_center_x - BUTTON_WIDTH // 2, content_top + 320, BUTTON_WIDTH, BUTTON_HEIGHT, "Entrar no Reino", BUTTON_BASE, BUTTON_HOVER)
+        self.register_button = Button(content_center_x - BUTTON_WIDTH // 2, content_top + 390, BUTTON_WIDTH, BUTTON_HEIGHT, "Forjar Novo Herói", SUCCESS_GREEN, BUTTON_HOVER)
+        
+        self.message = ""
+        self.message_color = ERROR_RED
+        self.jogador_logado = None
+
+    def handle_events(self, events):
+        for event in events:
+            self.username_box.handle_event(event)
+            self.password_box.handle_event(event)
+            
+            if self.login_button.handle_event(event, self.login):
+                if self.jogador_logado: return "game"
+            
+            if self.register_button.handle_event(event, self.go_to_register):
+                return "register"
+            
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+                if self.username_box.active or self.password_box.active:
+                    if self.login():
+                        return "game"
+        return "login"
+
+    def login(self):
+        username = self.username_box.text.strip()
+        password = self.password_box.text.strip()
+        
+        if not username or not password:
+            self.message = "Preencha todos os campos do pergaminho!"
+            self.message_color = ERROR_RED
+            return False
+        
+        success, result = self.gerenciador.fazer_login(username, password)
+        if success:
+            self.message = f"Bem-vindo(a), Cavaleiro(a) {username}!"
+            self.message_color = SUCCESS_GREEN
+            self.jogador_logado = result
+            return True
+        else:
+            self.message = result
+            self.message_color = ERROR_RED
+            return False
+
+    def go_to_register(self): return "register"
+
+    def update(self):
+        self.username_box.update()
+        self.password_box.update()
+
+    def draw(self, screen):
+        screen.blit(BACKGROUND_IMAGE, (0, 0))
+        
+        title = title_font.render("CRÔNICAS DE ELDORIA", True, GOLD_LIGHT)
+        title_rect = title.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 40))
+        screen.blit(title, title_rect)
+        
+        username_label = small_font.render("Usuário:", True, PERCHMENT_TEXT)
+        password_label = small_font.render("Senha:", True, PERCHMENT_TEXT)
+        
+        screen.blit(username_label, (self.username_box.rect.x, self.username_box.rect.y - 30))
+        screen.blit(password_label, (self.password_box.rect.x, self.password_box.rect.y - 30))
+        
+        self.username_box.draw(screen)
+        self.password_box.draw(screen)
+        self.login_button.draw(screen)
+        self.register_button.draw(screen)
+        
+        if self.message:
+            msg_surface = small_font.render(self.message, True, self.message_color)
+            msg_rect = msg_surface.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.bottom - 20))
+            screen.blit(msg_surface, msg_rect)
+
+
+class TelaCadastro:
+    def __init__(self, gerenciador):
+        self.gerenciador = gerenciador
+        
+        content_center_x = PERGAMINO_CONTENT_RECT.centerx
+        content_top = PERGAMINO_CONTENT_RECT.top
+
+        INPUT_WIDTH = 350
+        INPUT_HEIGHT = 40
+        
+        self.username_box = InputBox(content_center_x - INPUT_WIDTH // 2, content_top + 90, INPUT_WIDTH, INPUT_HEIGHT, placeholder='Nome de Herói')
+        self.email_box = InputBox(content_center_x - INPUT_WIDTH // 2, content_top + 160, INPUT_WIDTH, INPUT_HEIGHT, placeholder='Email do Reino')
+        self.password_box = InputBox(content_center_x - INPUT_WIDTH // 2, content_top + 230, INPUT_WIDTH, INPUT_HEIGHT, placeholder='Crie uma Senha Forte', is_password=True)
+        self.confirm_password_box = InputBox(content_center_x - INPUT_WIDTH // 2, content_top + 300, INPUT_WIDTH, INPUT_HEIGHT, placeholder='Confirme a Senha', is_password=True)
+        
+        BUTTON_WIDTH = 280
+        BUTTON_HEIGHT = 50
+        self.register_button = Button(content_center_x - BUTTON_WIDTH // 2, content_top + 370, BUTTON_WIDTH, BUTTON_HEIGHT, "Forjar Herói", SUCCESS_GREEN, BUTTON_HOVER)
+        self.back_button = Button(content_center_x - BUTTON_WIDTH // 2, content_top + 430, BUTTON_WIDTH, BUTTON_HEIGHT, "Voltar ao Portão", BUTTON_BASE, BUTTON_HOVER)
+        
+        self.message = ""
+        self.message_color = ERROR_RED
+
+    def handle_events(self, events):
+        for event in events:
+            self.username_box.handle_event(event)
+            self.email_box.handle_event(event)
+            self.password_box.handle_event(event)
+            self.confirm_password_box.handle_event(event)
+            
+            if self.register_button.handle_event(event, self.register):
+                if self.message_color == SUCCESS_GREEN: return "login"
+            
+            if self.back_button.handle_event(event, self.go_back): return "login"
+        
+        return "register"
+
+    def register(self):
+        username = self.username_box.text.strip()
+        email = self.email_box.text.strip()
+        password = self.password_box.text.strip()
+        confirm_password = self.confirm_password_box.text.strip()
+        
+        if not all([username, email, password, confirm_password]):
+            self.message = "Preencha todos os campos do pacto!"
+            self.message_color = ERROR_RED
+            return False
+        
+        if password != confirm_password:
+            self.message = "As senhas não coincidem. Confirme o feitiço!"
+            self.message_color = ERROR_RED
+            return False
+        
+        success, result = self.gerenciador.cadastrar_jogador(username, email, password)
+        self.message = result
+        self.message_color = SUCCESS_GREEN if success else ERROR_RED
+        
+        if success: self.limpar_campos()
+            
+        return success
+
+    def limpar_campos(self):
+        for box in [self.username_box, self.email_box, self.password_box, self.confirm_password_box]:
+            box.text = ""
+            box.active = False
+            box.color = MEDIEVAL_BROWN
+            box.update_surface()
+
+    def go_back(self): return "login"
+
+    def update(self):
+        self.username_box.update()
+        self.email_box.update()
+        self.password_box.update()
+        self.confirm_password_box.update()
+
+    def draw(self, screen):
+        screen.blit(BACKGROUND_IMAGE, (0, 0))
+        
+        title = title_font.render("FORJAR NOVO HERÓI", True, GOLD_LIGHT)
+        title_rect = title.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 40))
+        screen.blit(title, title_rect)
+        
+        username_label = small_font.render("Usuário:", True, PERCHMENT_TEXT)
+        email_label = small_font.render("Email:", True, PERCHMENT_TEXT)
+        password_label = small_font.render("Senha:", True, PERCHMENT_TEXT)
+        confirm_label = small_font.render("Confirmar:", True, PERCHMENT_TEXT)
+        
+        screen.blit(username_label, (self.username_box.rect.x, self.username_box.rect.y - 30))
+        screen.blit(email_label, (self.email_box.rect.x, self.email_box.rect.y - 30))
+        screen.blit(password_label, (self.password_box.rect.x, self.password_box.rect.y - 30))
+        screen.blit(confirm_label, (self.confirm_password_box.rect.x, self.confirm_password_box.rect.y - 30))
+        
+        self.username_box.draw(screen)
+        self.email_box.draw(screen)
+        self.password_box.draw(screen)
+        self.confirm_password_box.draw(screen)
+        self.register_button.draw(screen)
+        self.back_button.draw(screen)
+        
+        if self.message:
+            msg_surface = small_font.render(self.message, True, self.message_color)
+            msg_rect = msg_surface.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.bottom - 20))
+            screen.blit(msg_surface, msg_rect)
+
+class TelaJogo:
+    def __init__(self, jogador):
+        self.jogador = jogador
+        
+        content_center_x = PERGAMINO_CONTENT_RECT.centerx
+        content_top = PERGAMINO_CONTENT_RECT.top
+
+        BUTTON_WIDTH = 280
+        BUTTON_HEIGHT = 55
+        
+        self.sair_button = Button(PERGAMINO_CONTENT_RECT.left + 20, PERGAMINO_CONTENT_RECT.top + 20, 100, 50, "Sair", ERROR_RED, BUTTON_HOVER)
+
+        self.criar_personagem_button = Button(content_center_x - BUTTON_WIDTH // 2, content_top + 280, BUTTON_WIDTH, BUTTON_HEIGHT, "Escolher Personagem", SUCCESS_GREEN, BUTTON_HOVER)
+        self.iniciar_jogo_button = Button(content_center_x - BUTTON_WIDTH // 2, content_top + 350, BUTTON_WIDTH, BUTTON_HEIGHT, "Iniciar Jornada", BUTTON_BASE, BUTTON_HOVER)
+
+    def handle_events(self, events):
+        for event in events:
+            if self.sair_button.handle_event(event, self.sair): return "login"
+            if self.criar_personagem_button.handle_event(event, self.criar_personagem): pass
+            if self.iniciar_jogo_button.handle_event(event, self.iniciar_jogo):
+                if self.jogador.iniciar_jogo():
+                    print(f"A jornada de {self.jogador.nome_usuario} começa no reino de Eldoria!")
+                    pass
+        return "game"
+
+    def sair(self):
+        self.jogador.desconectar()
+        return "login"
+
+    def criar_personagem(self): self.jogador.criar_personagem()
+    def iniciar_jogo(self): return self.jogador.iniciar_jogo()
+    def update(self): pass
+
+    def draw(self, screen):
+        screen.blit(BACKGROUND_IMAGE, (0, 0))
+        
+        title = title_font.render(f"BEM-VINDO(A), {self.jogador.nome_usuario.upper()}!", True, GOLD_LIGHT)
+        title_rect = title.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 60))
+        screen.blit(title, title_rect)
+        
+        pygame.draw.line(screen, DARK_BROWN, 
+                         (PERGAMINO_CONTENT_RECT.left + 50, PERGAMINO_CONTENT_RECT.top + 120), 
+                         (PERGAMINO_CONTENT_RECT.right - 50, PERGAMINO_CONTENT_RECT.top + 120), 2)
+        
+        info_id = font.render(f"ID do Aventureiro: {self.jogador.id_jogador}", True, PERCHMENT_TEXT)
+        info_email = font.render(f"Conexão do Reino: {self.jogador.email}", True, PERCHMENT_TEXT)
+        info_personagens = font.render(f"Personagens Forjados: {len(self.jogador.personagens)}", True, PERCHMENT_TEXT)
+        
+        screen.blit(info_id, info_id.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 160)))
+        screen.blit(info_email, info_email.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 200)))
+        screen.blit(info_personagens, info_personagens.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 240)))
+        
+        self.criar_personagem_button.draw(screen)
+        self.iniciar_jogo_button.draw(screen)
+        self.sair_button.draw(screen)
+        
+        instrucao = small_font.render("O seu destino aguarda no reino de Eldoria!", True, GOLD_DARK)
+        instrucao_rect = instrucao.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.bottom - 40))
+        screen.blit(instrucao, instrucao_rect)
+
+
+class Jogo:
+    def __init__(self):
+        self.gerenciador = GerenciadorJogadores()
+        self.tela_login = TelaLogin(self.gerenciador)
+        self.tela_cadastro = TelaCadastro(self.gerenciador)
+        self.tela_jogo = None
+        self.tela_atual = "login"
+        self.executando = True
+
+    def executar(self):
+        while self.executando:
+            eventos = pygame.event.get()
+            for evento in eventos:
+                if evento.type == pygame.QUIT:
+                    self.executando = False
+
+            if self.tela_atual == "login":
+                prox_tela = self.tela_login.handle_events(eventos)
+                self.tela_login.update()
+                self.tela_login.draw(screen)
+                
+                if prox_tela == "game" and self.tela_login.jogador_logado:
+                    self.tela_jogo = TelaJogo(self.tela_login.jogador_logado)
+                    self.tela_atual = prox_tela
+                elif prox_tela == "register":
+                    self.tela_atual = prox_tela
+                    
+            elif self.tela_atual == "register":
+                prox_tela = self.tela_cadastro.handle_events(eventos)
+                self.tela_cadastro.update()
+                self.tela_cadastro.draw(screen)
+                self.tela_atual = prox_tela
+                
+            elif self.tela_atual == "game" and self.tela_jogo:
+                prox_tela = self.tela_jogo.handle_events(eventos)
+                self.tela_jogo.update()
+                self.tela_jogo.draw(screen)
+                self.tela_atual = prox_tela
+
+            pygame.display.flip()
+            CLOCK.tick(FPS)
+
+        pygame.quit()
+        sys.exit()
+
+if __name__ == "__main__":
+    jogo = Jogo()
+    jogo.executar()
