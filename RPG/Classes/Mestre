@@ -1,0 +1,28 @@
+class Mestre:
+    def __init__(self, id_mestre, capacidade_improvisacao, comunicacao, imparcialidade, criatividade, conhecimento_jogo):
+        self.id_mestre = id_mestre
+        self.capacidade_improvisacao = capacidade_improvisacao
+        self.comunicacao = comunicacao
+        self.imparcialidade = imparcialidade
+        self.criatividade = criatividade
+        self.conhecimento_jogo = conhecimento_jogo
+
+    def gerenciar_eventos(self):
+        """Gerencia os eventos que ocorrem no jogo."""
+        pass
+
+    def gerenciar_npcs_inimigos(self):
+        """Gerencia os NPCs e inimigos no jogo."""
+        pass
+
+    def gerenciar_local(self):
+        """Gerencia as informações sobre o local atual."""
+        pass
+
+    def definir_clima_local(self):
+        """Define o clima do local."""
+        pass
+
+    def definir_recursos_local(self):
+        """Define os recursos disponíveis no local."""
+        pass
