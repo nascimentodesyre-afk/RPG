@@ -1,0 +1,255 @@
+# criar_banco.py
+import sqlite3
+import os
+from pathlib import Path
+
+class DatabaseCreator:
+    def __init__(self):
+        self.db_dir = Path("banco")
+        self.db_path = self.db_dir / "rpg.db"
+        
+    def create_database(self):
+        """Cria toda a estrutura do banco de dados"""
+        try:
+            self.db_dir.mkdir(exist_ok=True)
+            
+            # Remove o banco existente para recriar do zero
+            if self.db_path.exists():
+                self.db_path.unlink()
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA foreign_keys = ON")
+            
+            # Script SQL completo com a estrutura correta
+            sql_script = """
+            -- Tabela Jogador
+            CREATE TABLE IF NOT EXISTS Jogador (
+                id_jogador INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome_usuario TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL UNIQUE,
+                senha TEXT NOT NULL,
+                data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Tabela Personagem
+            CREATE TABLE IF NOT EXISTS Personagem (
+                id_personagem INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_jogador INTEGER NOT NULL,
+                nome VARCHAR(100) NOT NULL,
+                classe VARCHAR(50) NOT NULL,
+                nivel INTEGER DEFAULT 1 CHECK(nivel BETWEEN 1 AND 100),
+                forca INTEGER DEFAULT 10,
+                destreza INTEGER DEFAULT 10,
+                constituicao INTEGER DEFAULT 10,
+                inteligencia INTEGER DEFAULT 10,
+                pontos_vida INTEGER DEFAULT 100,
+                pontos_vida_max INTEGER DEFAULT 100,
+                pontos_mana INTEGER DEFAULT 50,
+                pontos_mana_max INTEGER DEFAULT 50,
+                ponto_fraco VARCHAR(100),
+                experiencia INTEGER DEFAULT 0,
+                experiencia_proximo_nivel INTEGER DEFAULT 100,
+                data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_personagem_jogador FOREIGN KEY (id_jogador) REFERENCES Jogador(id_jogador)
+            );
+
+            -- Tabela Habilidade - AGORA COM A COLUNA CLASSE
+            CREATE TABLE IF NOT EXISTS Habilidade (
+                id_habilidade INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome VARCHAR(100) NOT NULL,
+                descricao TEXT,
+                tipo_habilidade VARCHAR(50),
+                custo INTEGER DEFAULT 0,
+                alcance INTEGER DEFAULT 1,
+                dano INTEGER DEFAULT 0,
+                tempo_recarga REAL DEFAULT 0,
+                alvo VARCHAR(50),
+                classe VARCHAR(50)  -- COLUNA ADICIONADA
+            );
+
+            -- Tabela Habilidades do Personagem
+            CREATE TABLE IF NOT EXISTS Personagem_Habilidade (
+                id_personagem INTEGER,
+                id_habilidade INTEGER,
+                tempo_recarga_restante REAL DEFAULT 0,
+                PRIMARY KEY (id_personagem, id_habilidade),
+                CONSTRAINT fk_ph_personagem FOREIGN KEY (id_personagem) REFERENCES Personagem(id_personagem),
+                CONSTRAINT fk_ph_habilidade FOREIGN KEY (id_habilidade) REFERENCES Habilidade(id_habilidade)
+            );
+
+            -- Tabela Item
+            CREATE TABLE IF NOT EXISTS Item (
+                id_item INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome VARCHAR(100) NOT NULL,
+                descricao TEXT,
+                tipo VARCHAR(50),
+                qualidade VARCHAR(50),
+                raridade VARCHAR(50),
+                valor INTEGER DEFAULT 0,
+                efeito VARCHAR(255)
+            );
+
+            -- Tabela Inventario
+            CREATE TABLE IF NOT EXISTS Inventario (
+                id_inventario INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_personagem INTEGER NOT NULL UNIQUE,
+                capacidade INTEGER DEFAULT 20,
+                CONSTRAINT fk_inventario_personagem FOREIGN KEY (id_personagem) REFERENCES Personagem(id_personagem)
+            );
+
+            -- Tabela Itens do Inventario
+            CREATE TABLE IF NOT EXISTS Inventario_Item (
+                id_inventario INTEGER,
+                id_item INTEGER,
+                quantidade INTEGER DEFAULT 1,
+                PRIMARY KEY (id_inventario, id_item),
+                CONSTRAINT fk_ii_inventario FOREIGN KEY (id_inventario) REFERENCES Inventario(id_inventario),
+                CONSTRAINT fk_ii_item FOREIGN KEY (id_item) REFERENCES Item(id_item)
+            );
+
+            -- Tabela Missao
+            CREATE TABLE IF NOT EXISTS Missao (
+                id_missao INTEGER PRIMARY KEY AUTOINCREMENT,
+                titulo VARCHAR(255) NOT NULL,
+                descricao TEXT,
+                localizacao VARCHAR(100),
+                recompensa VARCHAR(255),
+                status VARCHAR(20) CHECK(status IN ('Disponível', 'Em Andamento', 'Concluída', 'Falhou')) DEFAULT 'Disponível',
+                passos_total INTEGER DEFAULT 1,
+                passos_concluidos INTEGER DEFAULT 0,
+                data_inicio DATETIME,
+                data_conclusao DATETIME
+            );
+
+            -- Tabela Missões do Jogador
+            CREATE TABLE IF NOT EXISTS Jogador_Missao (
+                id_jogador INTEGER,
+                id_missao INTEGER,
+                progresso INTEGER DEFAULT 0,
+                PRIMARY KEY (id_jogador, id_missao),
+                CONSTRAINT fk_jm_jogador FOREIGN KEY (id_jogador) REFERENCES Jogador(id_jogador),
+                CONSTRAINT fk_jm_missao FOREIGN KEY (id_missao) REFERENCES Missao(id_missao)
+            );
+
+            -- Tabela Inimigo
+            CREATE TABLE IF NOT EXISTS Inimigo (
+                id_inimigo INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome VARCHAR(100) NOT NULL,
+                tipo VARCHAR(50),
+                pontos_vida INTEGER DEFAULT 50,
+                pontos_vida_max INTEGER DEFAULT 50,
+                ataque INTEGER DEFAULT 10,
+                defesa INTEGER DEFAULT 5,
+                fraqueza VARCHAR(100),
+                experiencia_concedida INTEGER DEFAULT 25,
+                descricao TEXT
+            );
+
+            -- Tabela Combate
+            CREATE TABLE IF NOT EXISTS Combate (
+                id_combate INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_personagem INTEGER,
+                id_inimigo INTEGER,
+                resultado VARCHAR(20) CHECK(resultado IN ('Vitória', 'Derrota', 'Fuga')),
+                dano_causado INTEGER DEFAULT 0,
+                dano_recebido INTEGER DEFAULT 0,
+                data_combate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_combate_personagem FOREIGN KEY (id_personagem) REFERENCES Personagem(id_personagem),
+                CONSTRAINT fk_combate_inimigo FOREIGN KEY (id_inimigo) REFERENCES Inimigo(id_inimigo)
+            );
+
+            -- Tabela Local
+            CREATE TABLE IF NOT EXISTS Local (
+                id_local INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome VARCHAR(100) NOT NULL,
+                tipo VARCHAR(50),
+                recursos TEXT,
+                clima VARCHAR(50),
+                perigos TEXT,
+                descricao TEXT
+            );
+
+            -- Tabela de Log do Sistema
+            CREATE TABLE IF NOT EXISTS Sistema_Log (
+                id_log INTEGER PRIMARY KEY AUTOINCREMENT,
+                tipo VARCHAR(50),
+                mensagem TEXT,
+                data_log DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+            
+            cursor.executescript(sql_script)
+            conn.commit()
+            
+            # Agora inserir os dados iniciais
+            dados_iniciais_script = """
+            -- Inserir dados iniciais de Habilidades
+            INSERT OR IGNORE INTO Habilidade (nome, descricao, tipo_habilidade, custo, alcance, dano, tempo_recarga, alvo, classe) VALUES
+            ('Corte Certeiro', 'Golpe preciso que ignora parte da defesa', 'Físico', 0, 1, 15, 2.0, 'Único', 'Guerreiro'),
+            ('Investida Heróica', 'Avanço rápido com dano aumentado', 'Físico', 5, 3, 12, 4.0, 'Único', 'Guerreiro'),
+            ('Barreira Impenetrável', 'Dobra a defesa por 2 turnos', 'Defesa', 10, 0, 0, 8.0, 'Auto', 'Guerreiro'),
+            ('Fúria do Guerreiro', 'Ataque em área com chance de atordoar', 'Físico', 15, 2, 25, 6.0, 'Área', 'Guerreiro'),
+            ('Bola de Fogo Arcana', 'Esfera de fogo que queima múltiplos alvos', 'Magia', 12, 4, 22, 3.0, 'Área', 'Mago'),
+            ('Lâmina de Gelo', 'Lâminas afiadas de gelo perfuram defesas', 'Magia', 8, 3, 18, 2.5, 'Único', 'Mago'),
+            ('Cura Celestial', 'Restauração poderosa com bônus temporário', 'Cura', 15, 2, -35, 5.0, 'Aliado', 'Mago'),
+            ('Névoa Arcana', 'Reduz precisão inimiga e aumenta defesa mágica', 'Suporte', 10, 3, 0, 6.0, 'Área', 'Mago'),
+            ('Tiro Preciso', 'Disparo certeiro com alta penetração', 'Físico', 3, 4, 14, 2.0, 'Único', 'Arqueiro'),
+            ('Chuva de Flechas', 'Múltiplos disparos contra grupos', 'Físico', 8, 3, 20, 4.0, 'Área', 'Arqueiro'),
+            ('Armadilha Escondida', 'Prepara armadilha que prende inimigos', 'Controle', 5, 2, 0, 6.0, 'Terreno', 'Arqueiro'),
+            ('Furtividade', 'Aumenta evasão e chance de crítico', 'Suporte', 0, 0, 0, 10.0, 'Auto', 'Arqueiro');
+
+            -- Inserir dados iniciais de Itens
+            INSERT OR IGNORE INTO Item (nome, descricao, tipo, qualidade, raridade, valor, efeito) VALUES
+            ('Poção de Vida', 'Restaura pontos de vida', 'Poção', 'Comum', 'Normal', 50, 'Cura 35 HP'),
+            ('Poção de Mana', 'Restaura pontos de mana', 'Poção', 'Comum', 'Normal', 75, 'Restaura 25 MP'),
+            ('Elixir de Força', 'Aumenta força temporariamente', 'Poção', 'Incomum', 'Raro', 150, '+5 Força por 1 hora'),
+            ('Espada Longa', 'Arma básica de aço', 'Arma', 'Comum', 'Normal', 200, 'Dano: 8-12'),
+            ('Armadura de Couro', 'Proteção leve de couro', 'Armadura', 'Comum', 'Normal', 150, 'Defesa: +5'),
+            ('Amuleto da Sorte', 'Aumenta chance de acerto crítico', 'Acessório', 'Incomum', 'Raro', 500, 'Crítico +5%'),
+            ('Cajado Arcano', 'Foca energia mágica', 'Arma', 'Comum', 'Normal', 300, 'Poder Mágico +10'),
+            ('Arco Recurvo', 'Arco de precisão aprimorada', 'Arma', 'Comum', 'Normal', 250, 'Precisão +8');
+
+            -- Inserir dados iniciais de Inimigos
+            INSERT OR IGNORE INTO Inimigo (nome, tipo, pontos_vida, pontos_vida_max, ataque, defesa, fraqueza, experiencia_concedida, descricao) VALUES
+            ('Líder dos Assaltantes', 'Humanoide', 60, 60, 12, 8, 'Luz', 50, 'Chefe dos bandidos da região'),
+            ('Espião do Conselho', 'Humanoide', 45, 45, 10, 6, 'Verdade', 35, 'Infiltrado nas altas esferas'),
+            ('Guarda Corrompido', 'Humanoide', 55, 55, 14, 10, 'Honra', 45, 'Ex-membro da guarda real'),
+            ('Lobo Selvagem', 'Besta', 30, 30, 8, 4, 'Fogo', 20, 'Predador das florestas'),
+            ('Esqueleto Guerreiro', 'Morto-Vivo', 40, 40, 9, 5, 'Luz Sagrada', 30, 'Guerreiro ancestral reanimado');
+
+            -- Inserir dados iniciais de Missões
+            INSERT OR IGNORE INTO Missao (titulo, descricao, localizacao, recompensa, status, passos_total, passos_concluidos) VALUES
+            ('Proteger a Vila', 'Derrote os bandidos que ameaçam a paz da vila', 'Vila de Eldoria', '100 moedas de ouro e reputação', 'Disponível', 3, 0),
+            ('Caça à Besta', 'Elimine a fera que aterroriza os aldeões', 'Floresta Sombria', '150 moedas e couro raro', 'Disponível', 2, 0),
+            ('Recuperar o Artefato', 'Encontre o artefato perdido nas ruínas', 'Ruínas Antigas', '300 moedas e amuleto mágico', 'Disponível', 4, 0);
+
+            -- Inserir dados iniciais de Locais
+            INSERT OR IGNORE INTO Local (nome, tipo, recursos, clima, perigos, descricao) VALUES
+            ('Vila de Eldoria', 'Comunidade', 'Comércio, Ferreiro, Taverna', 'Temperado', 'Bandidos, Assaltantes', 'Uma vila próspera com comércio animado'),
+            ('Floresta Sombria', 'Floresta', 'Madeira, Ervas, Caça', 'Úmido', 'Animais Selvagens, Bestas', 'Floresta densa com criaturas perigosas'),
+            ('Ruínas Antigas', 'Ruína', 'Artefatos, Minerais Raros', 'Seco', 'Armadilhas, Mortos-Vivos', 'Ruínas de uma civilização ancestral');
+
+            -- Criar índices para performance
+            CREATE INDEX IF NOT EXISTS idx_personagem_jogador ON Personagem(id_jogador);
+            CREATE INDEX IF NOT EXISTS idx_inventario_personagem ON Inventario(id_personagem);
+            CREATE INDEX IF NOT EXISTS idx_missao_status ON Missao(status);
+            CREATE INDEX IF NOT EXISTS idx_combate_data ON Combate(data_combate);
+            CREATE INDEX IF NOT EXISTS idx_jogador_email ON Jogador(email);
+            CREATE INDEX IF NOT EXISTS idx_jogador_usuario ON Jogador(nome_usuario);
+            """
+            
+            cursor.executescript(dados_iniciais_script)
+            conn.commit()
+            conn.close()
+            
+            print("✅ Banco de dados criado com sucesso!")
+            return True
+            
+        except sqlite3.Error as e:
+            print(f"❌ Erro ao criar banco de dados: {e}")
+            return False
+
+if __name__ == "__main__":
+    creator = DatabaseCreator()
+    creator.create_database()
