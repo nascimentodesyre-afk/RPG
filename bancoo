@@ -1,0 +1,362 @@
+# criar_banco_rpg.py
+import sqlite3
+import os
+from pathlib import Path
+
+class DatabaseCreator:
+    def __init__(self):
+        # Define onde o banco de dados será armazenado
+        self.db_dir = Path("banco")
+        self.db_path = self.db_dir / "rpg.db"
+        
+    def create_database(self):
+        """Cria toda a estrutura do banco de dados com dados iniciais"""
+        try:
+            # Garante que a pasta do banco existe
+            self.db_dir.mkdir(exist_ok=True)
+            
+            # Remove versão anterior para começar do zero (em desenvolvimento)
+            if self.db_path.exists():
+                self.db_path.unlink()
+            
+            # Conecta ao banco e prepara o ambiente
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA foreign_keys = ON")  # Ativa integridade referencial
+            
+            # ==================== CRIAÇÃO DAS TABELAS ====================
+            
+            # Tabela dos Jogadores - Quem joga no sistema
+            cursor.execute("""
+                CREATE TABLE Jogador (
+                    id_jogador INTEGER PRIMARY KEY AUTOINCREMENT,  -- Identificador único
+                    nome_usuario TEXT NOT NULL UNIQUE,             -- Nome que aparece no jogo
+                    email TEXT NOT NULL UNIQUE,                    -- Para login e recuperação
+                    senha TEXT NOT NULL,                           -- Protege a conta
+                    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP -- Quando se cadastrou
+                )
+            """)
+            
+            # Tabela dos Personagens - Heróis controlados pelos jogadores
+            cursor.execute("""
+                CREATE TABLE Personagem (
+                    id_personagem INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_jogador INTEGER NOT NULL,                   -- Dono do personagem
+                    nome TEXT NOT NULL,                            -- Nome do herói
+                    classe TEXT NOT NULL,                          -- Guerreiro, Mago, Ladino, etc.
+                    nivel INTEGER DEFAULT 1 CHECK(nivel BETWEEN 1 AND 100), -- Progressão
+                    forca INTEGER DEFAULT 10,                      -- Atributo físico
+                    destreza INTEGER DEFAULT 10,                   -- Agilidade e precisão
+                    constituicao INTEGER DEFAULT 10,               -- Resistência e saúde
+                    inteligencia INTEGER DEFAULT 10,               -- Poder mágico
+                    pontos_vida INTEGER DEFAULT 100,               -- HP atual
+                    pontos_vida_max INTEGER DEFAULT 100,           -- HP máximo
+                    pontos_mana INTEGER DEFAULT 50,                -- MP atual
+                    pontos_mana_max INTEGER DEFAULT 50,            -- MP máximo
+                    ponto_fraco TEXT,                              -- Vulnerabilidades
+                    experiencia INTEGER DEFAULT 0,                 -- XP acumulado
+                    experiencia_proximo_nivel INTEGER DEFAULT 100, -- XP para subir nível
+                    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    id_local_atual INTEGER,                        -- Onde está agora
+                    CONSTRAINT fk_personagem_jogador FOREIGN KEY (id_jogador) REFERENCES Jogador(id_jogador)
+                )
+            """)
+            
+            # Catálogo de Habilidades - Todas as skills disponíveis no jogo
+            cursor.execute("""
+                CREATE TABLE Habilidade (
+                    id_habilidade INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,                            -- Nome da habilidade
+                    descricao TEXT,                                -- O que ela faz
+                    tipo_habilidade TEXT,                          -- Físico, Magia, Cura, etc.
+                    custo INTEGER DEFAULT 0,                       -- Custo de mana/energia
+                    alcance INTEGER DEFAULT 1,                     -- Distância em metros
+                    dano INTEGER DEFAULT 0,                        -- Dano base
+                    tempo_recarga REAL DEFAULT 0,                  -- Cooldown em segundos
+                    alvo TEXT,                                     -- Único, Área, Aliado
+                    classe TEXT                                    -- Quem pode usar
+                )
+            """)
+            
+            # Liga Personagens com suas Habilidades - O que cada um sabe
+            cursor.execute("""
+                CREATE TABLE Personagem_Habilidade (
+                    id_personagem INTEGER,                         -- Quem tem a habilidade
+                    id_habilidade INTEGER,                         -- Qual habilidade
+                    tempo_recarga_restante REAL DEFAULT 0,         -- Tempo até poder usar de novo
+                    PRIMARY KEY (id_personagem, id_habilidade),    -- Combinação única
+                    CONSTRAINT fk_ph_personagem FOREIGN KEY (id_personagem) REFERENCES Personagem(id_personagem),
+                    CONSTRAINT fk_ph_habilidade FOREIGN KEY (id_habilidade) REFERENCES Habilidade(id_habilidade)
+                )
+            """)
+            
+            # Catálogo de Itens - Todos os itens do jogo
+            cursor.execute("""
+                CREATE TABLE Item (
+                    id_item INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,                            -- Nome do item
+                    descricao TEXT,                                -- Descrição detalhada
+                    tipo TEXT,                                     -- Arma, Armadura, Consumível
+                    qualidade TEXT,                                -- Normal, Mágica, Superior
+                    raridade TEXT,                                 -- Comum, Incomum, Rara
+                    valor INTEGER DEFAULT 0,                       -- Preço em lojas
+                    efeito TEXT                                    -- O que o item faz
+                )
+            """)
+            
+            # Inventários dos Personagens - Bolsa de cada herói
+            cursor.execute("""
+                CREATE TABLE Inventario (
+                    id_inventario INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_personagem INTEGER NOT NULL UNIQUE,         -- Cada personagem tem 1 inventário
+                    capacidade INTEGER DEFAULT 20,                 -- Quantos itens cabem
+                    CONSTRAINT fk_inventario_personagem FOREIGN KEY (id_personagem) REFERENCES Personagem(id_personagem)
+                )
+            """)
+            
+            # Itens dentro dos Inventários - O que cada um carrega
+            cursor.execute("""
+                CREATE TABLE Inventario_Item (
+                    id_inventario INTEGER,                         -- De quem é o inventário
+                    id_item INTEGER,                               -- Qual item está guardado
+                    quantidade INTEGER DEFAULT 1,                  -- Quantos tem
+                    PRIMARY KEY (id_inventario, id_item),          -- Não pode repetir item no mesmo inventário
+                    CONSTRAINT fk_ii_inventario FOREIGN KEY (id_inventario) REFERENCES Inventario(id_inventario),
+                    CONSTRAINT fk_ii_item FOREIGN KEY (id_item) REFERENCES Item(id_item)
+                )
+            """)
+            
+            # Catálogo de Inimigos - Adversários do jogo
+            cursor.execute("""
+                CREATE TABLE Inimigo (
+                    id_inimigo INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,                            -- Nome do inimigo
+                    tipo TEXT,                                     -- Humanoide, Besta, etc.
+                    pontos_vida INTEGER DEFAULT 50,                -- HP atual
+                    pontos_vida_max INTEGER DEFAULT 50,            -- HP máximo
+                    ataque INTEGER DEFAULT 10,                     -- Poder de ataque
+                    defesa INTEGER DEFAULT 5,                      -- Proteção
+                    fraqueza TEXT,                                 -- Elemento vulnerável
+                    experiencia_concedida INTEGER DEFAULT 25,      -- XP que dá ao ser derrotado
+                    descricao TEXT                                 -- História/aparência
+                )
+            """)
+            
+            # Registro de Combates - Histórico de batalhas
+            cursor.execute("""
+                CREATE TABLE Combate (
+                    id_combate INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id_personagem INTEGER,                         -- Quem lutou
+                    id_inimigo INTEGER,                            -- Contra quem lutou
+                    resultado TEXT CHECK(resultado IN ('Vitória', 'Derrota', 'Fuga')), -- Como terminou
+                    dano_causado INTEGER DEFAULT 0,                -- Dano total dado
+                    dano_recebido INTEGER DEFAULT 0,               -- Dano total tomado
+                    data_combate DATETIME DEFAULT CURRENT_TIMESTAMP, -- Quando aconteceu
+                    CONSTRAINT fk_combate_personagem FOREIGN KEY (id_personagem) REFERENCES Personagem(id_personagem),
+                    CONSTRAINT fk_combate_inimigo FOREIGN KEY (id_inimigo) REFERENCES Inimigo(id_inimigo)
+                )
+            """)
+            
+            # Missões Disponíveis - Quests do jogo
+            cursor.execute("""
+                CREATE TABLE Missao (
+                    id_missao INTEGER PRIMARY KEY AUTOINCREMENT,
+                    titulo TEXT NOT NULL,                          -- Nome da missão
+                    descricao TEXT,                                -- O que precisa fazer
+                    localizacao TEXT,                              -- Onde acontece
+                    recompensa TEXT,                               -- O que ganha ao completar
+                    status TEXT CHECK(status IN ('Disponível', 'Em Andamento', 'Concluída', 'Falhou')) DEFAULT 'Disponível',
+                    passos_total INTEGER DEFAULT 1,                -- Quantas etapas tem
+                    passos_concluidos INTEGER DEFAULT 0,           -- Quantas já fez
+                    data_inicio DATETIME,                          -- Quando começou
+                    data_conclusao DATETIME                        -- Quando terminou
+                )
+            """)
+            
+            # Progresso dos Jogadores nas Missões - Quem está fazendo o quê
+            cursor.execute("""
+                CREATE TABLE Jogador_Missao (
+                    id_jogador INTEGER,                            -- Quem aceitou a missão
+                    id_missao INTEGER,                             -- Qual missão
+                    progresso INTEGER DEFAULT 0,                   -- Porcentagem ou etapas
+                    PRIMARY KEY (id_jogador, id_missao),           -- Não pode repetir missão para mesmo jogador
+                    CONSTRAINT fk_jm_jogador FOREIGN KEY (id_jogador) REFERENCES Jogador(id_jogador),
+                    CONSTRAINT fk_jm_missao FOREIGN KEY (id_missao) REFERENCES Missao(id_missao)
+                )
+            """)
+            
+            # Log do Sistema - Registro de eventos importantes
+            cursor.execute("""
+                CREATE TABLE Sistema_Log (
+                    id_log INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tipo TEXT,                                     -- Info, Aviso, Erro
+                    mensagem TEXT,                                 -- O que aconteceu
+                    data_log DATETIME DEFAULT CURRENT_TIMESTAMP    -- Quando aconteceu
+                )
+            """)
+            
+            conn.commit()
+            print("✅ Todas as tabelas criadas com sucesso!")
+            
+            # ==================== DADOS INICIAIS PARA TESTE ====================
+            
+            self._insert_initial_data(cursor, conn)
+            
+            # ==================== OTIMIZAÇÃO DO BANCO ====================
+            
+            self._create_indexes(cursor, conn)
+            
+            conn.close()
+            
+            print("✅ Banco de dados RPG criado com sucesso!")
+            print("✅ Estrutura completa!")
+            print("✅ Dados iniciais inseridos!")
+            return True
+            
+        except sqlite3.Error as e:
+            print(f"❌ Erro ao criar banco de dados: {e}")
+            return False
+
+    def _insert_initial_data(self, cursor, conn):
+        """Popula o banco com dados iniciais para testar o jogo"""
+        try:
+            # Habilidades - As skills que os personagens podem aprender
+            habilidades = [
+                # Habilidades de Guerreiro
+                (1, 'Corte Certeiro', 'Golpe preciso que ignora parte da defesa', 'Físico', 0, 1, 15, 2.0, 'Único', 'Guerreiro'),
+                (2, 'Investida Heróica', 'Avanço rápido com dano aumentado', 'Físico', 5, 3, 12, 4.0, 'Único', 'Guerreiro'),
+                (3, 'Barreira Impenetrável', 'Dobra a defesa por 2 turnos', 'Defesa', 10, 0, 0, 8.0, 'Próprio', 'Guerreiro'),
+                (4, 'Fúria do Guerreiro', 'Ataque em área com chance de atordoar', 'Físico', 15, 2, 25, 6.0, 'Área', 'Guerreiro'),
+                
+                # Habilidades de Mago
+                (5, 'Bola de Fogo', 'Esfera de fogo que queima múltiplos alvos', 'Magia', 20, 4, 30, 3.0, 'Área', 'Mago'),
+                (6, 'Raio de Gelo', 'Jato congelante que reduz velocidade', 'Magia', 15, 3, 25, 2.5, 'Único', 'Mago'),
+                (7, 'Cura Leve', 'Restaura pontos de vida do alvo', 'Cura', 10, 2, -20, 5.0, 'Aliado', 'Mago'),
+                (8, 'Escudo Arcano', 'Proteção mágica contra dano', 'Defesa', 8, 0, 0, 4.0, 'Próprio', 'Mago'),
+                
+                # Habilidades de Ladino
+                (9, 'Ataque Furtivo', 'Dano extra quando não detectado', 'Físico', 0, 1, 20, 3.0, 'Único', 'Ladino'),
+                (10, 'Esquiva Ágil', 'Aumenta evasão significativamente', 'Defesa', 5, 0, 0, 6.0, 'Próprio', 'Ladino')
+            ]
+            
+            cursor.executemany("""
+                INSERT INTO Habilidade (id_habilidade, nome, descricao, tipo_habilidade, custo, alcance, dano, tempo_recarga, alvo, classe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, habilidades)
+            
+            # Itens - Equipamentos e consumíveis disponíveis
+            itens = [
+                # Consumíveis
+                (1, 'Poção de Vida', 'Restaura 35 pontos de vida', 'Consumível', 'Normal', 'Comum', 25, 'Cura 35 PV'),
+                (2, 'Poção de Mana', 'Restaura 25 pontos de mana', 'Consumível', 'Normal', 'Comum', 30, 'Restaura 25 PM'),
+                (3, 'Elixir de Força', 'Aumenta a força temporariamente', 'Consumível', 'Mágica', 'Incomum', 50, '+5 Força por 1 hora'),
+                (10, 'Poção de Veneno', 'Causa dano por veneno', 'Consumível', 'Normal', 'Incomum', 40, '5 de dano por 3 turnos'),
+                
+                # Armas
+                (4, 'Espada Longa', 'Uma espada confiável para combate', 'Arma', 'Comum', 'Comum', 100, 'Dano: 1d8'),
+                (5, 'Cajado Arcano', 'Amplifica poderes mágicos', 'Arma', 'Mágica', 'Incomum', 200, '+10% poder mágico'),
+                (8, 'Arco Longo', 'Arco para ataques à distância', 'Arma', 'Comum', 'Comum', 80, 'Alcance: 30m'),
+                
+                # Armaduras
+                (6, 'Armadura de Couro', 'Proteção básica para aventureiros', 'Armadura', 'Comum', 'Comum', 75, 'Defesa: +2'),
+                (7, 'Armadura de Placas', 'Proteção pesada para guerreiros', 'Armadura', 'Superior', 'Rara', 300, 'Defesa: +5'),
+                
+                # Acessórios
+                (9, 'Amuleto da Sorte', 'Aumenta chances de acerto crítico', 'Acessório', 'Mágica', 'Rara', 500, '+5% crítico')
+            ]
+            
+            cursor.executemany("""
+                INSERT INTO Item (id_item, nome, descricao, tipo, qualidade, raridade, valor, efeito)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, itens)
+            
+            # Inimigos - Os adversários que os jogadores enfrentarão
+            inimigos = [
+                (1, 'Líder dos Assaltantes', 'Humanoide', 60, 60, 12, 8, 'Luz', 50, 'Chefe dos bandidos da região'),
+                (2, 'Espião do Conselho', 'Humanoide', 45, 45, 10, 12, 'Verdade', 35, 'Infiltrado nas altas esferas'),
+                (3, 'Guarda Corrompido', 'Humanoide', 55, 55, 14, 10, 'Honra', 45, 'Ex-membro da guarda real'),
+                (4, 'Lobo Sombrio', 'Besta', 40, 40, 8, 6, 'Fogo', 25, 'Lobo corrompido pela escuridão'),
+                (5, 'Aranha Gigante', 'Besta', 50, 50, 10, 5, 'Gelo', 30, 'Aranha de tamanho anormal')
+            ]
+            
+            cursor.executemany("""
+                INSERT INTO Inimigo (id_inimigo, nome, tipo, pontos_vida, pontos_vida_max, ataque, defesa, fraqueza, experiencia_concedida, descricao)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, inimigos)
+            
+            # Missões - As aventuras disponíveis
+            missoes = [
+                (1, 'Proteger a Vila', 'Derrote os bandidos que ameaçam a paz da vila', 'Vila de Eldoria', '100 moedas de ouro e reputação', 'Disponível', 3, 0, None, None),
+                (2, 'Caça à Besta da Floresta', 'Elimine a criatura que assombra a floresta', 'Floresta Sombria', '150 moedas e item raro', 'Disponível', 2, 0, None, None),
+                (3, 'Recuperar o Artefato Perdido', 'Encontre o artefato nas ruínas antigas', 'Ruínas Antigas', '200 moedas e fama', 'Disponível', 4, 0, None, None)
+            ]
+            
+            cursor.executemany("""
+                INSERT INTO Missao (id_missao, titulo, descricao, localizacao, recompensa, status, passos_total, passos_concluidos, data_inicio, data_conclusao)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, missoes)
+            
+            conn.commit()
+            print("✅ Dados iniciais inseridos com sucesso!")
+            
+        except sqlite3.Error as e:
+            print(f"❌ Erro ao inserir dados iniciais: {e}")
+            raise
+
+    def _create_indexes(self, cursor, conn):
+        """Cria índices para acelerar as consultas mais frequentes"""
+        try:
+            indexes = [
+                # Índices para buscas rápidas de personagens
+                "CREATE INDEX IF NOT EXISTS idx_personagem_jogador ON Personagem(id_jogador)",
+                "CREATE INDEX IF NOT EXISTS idx_personagem_classe ON Personagem(classe)",
+                "CREATE INDEX IF NOT EXISTS idx_personagem_nivel ON Personagem(nivel)",
+                
+                # Índices para inventário e itens
+                "CREATE INDEX IF NOT EXISTS idx_inventario_personagem ON Inventario(id_personagem)",
+                "CREATE INDEX IF NOT EXISTS idx_item_tipo ON Item(tipo)",
+                
+                # Índices para missões e progresso
+                "CREATE INDEX IF NOT EXISTS idx_missao_status ON Missao(status)",
+                
+                # Índices para combates e histórico
+                "CREATE INDEX IF NOT EXISTS idx_combate_data ON Combate(data_combate)",
+                "CREATE INDEX IF NOT EXISTS idx_combate_personagem ON Combate(id_personagem)",
+                
+                # Índices para habilidades e inimigos
+                "CREATE INDEX IF NOT EXISTS idx_habilidade_classe ON Habilidade(classe)",
+                "CREATE INDEX IF NOT EXISTS idx_inimigo_tipo ON Inimigo(tipo)",
+                
+                # Índices para login e usuários
+                "CREATE INDEX IF NOT EXISTS idx_jogador_email ON Jogador(email)",
+                "CREATE INDEX IF NOT EXISTS idx_jogador_usuario ON Jogador(nome_usuario)"
+            ]
+            
+            for index in indexes:
+                cursor.execute(index)
+            
+            conn.commit()
+            print("✅ Índices criados com sucesso!")
+            
+        except sqlite3.Error as e:
+            print(f"❌ Erro ao criar índices: {e}")
+            raise
+
+if __name__ == "__main__":
+    # Cria uma instância do criador de banco e executa
+    creator = DatabaseCreator()
+    success = creator.create_database()
+    
+    if success:
+        print("\n" + "="*60)
+        print("🎮 BANCO DE DADOS RPG CRIADO COM SUCESSO!")
+        print("="*60)
+        print("📊 Estrutura criada:")
+        print("   ✅ 10 tabelas principais")
+        print("   ✅ Dados iniciais para teste")
+        print("   ✅ Índices de performance")
+        print("\n👉 Agora execute o jogo RPG!")
+        print("👉 O banco está 100% compatível!")
+        print("="*60)
+    else:
+        print("\n❌ Falha ao criar o banco de dados.")

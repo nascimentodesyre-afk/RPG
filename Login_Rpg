@@ -1,0 +1,1195 @@
+# sistema_login.py
+"""
+SISTEMA DE LOGIN - CRÔNICAS DE ELDORIA
+=======================================
+Sistema completo de autenticação e gerenciamento de jogadores
+para o RPG Crônicas de Eldoria.
+
+Funcionalidades:
+- Login de jogadores existentes
+- Cadastro de novos heróis
+- Navegação entre telas do jogo
+
+Arquitetura:
+- Pygame para interface gráfica
+- SQLite para armazenamento de dados
+- Sistema modular com classes especializadas
+"""
+
+import pygame
+import sys
+import os
+import hashlib
+import sqlite3
+from pathlib import Path
+from datetime import datetime
+import subprocess
+
+# =============================================================================
+# INICIALIZAÇÃO DO PYGAME E CONFIGURAÇÕES GLOBAIS
+# =============================================================================
+
+# Inicia o motor gráfico do Pygame
+pygame.init()
+
+# Configurações da janela do jogo
+SCREEN_WIDTH = 1100    # Largura da tela em pixels
+SCREEN_HEIGHT = 700    # Altura da tela em pixels
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Crônicas de Eldoria - Login do Herói")
+
+# Controle de frames por segundo para animação suave
+CLOCK = pygame.time.Clock()
+FPS = 60
+
+# =============================================================================
+# PALETA DE CORES MEDIEVAIS - TEMA DO JOGO
+# =============================================================================
+
+# Cores inspiradas em pergaminhos antigos e metais preciosos
+DARK_BROWN = (50, 30, 15)           # Marrom escuro para contornos
+MEDIEVAL_BROWN = (101, 67, 33)      # Marrom medieval para elementos
+GOLD_DARK = (139, 105, 0)           # Ouro escuro para detalhes
+GOLD_LIGHT = (200, 160, 0)          # Ouro claro para realces
+PERCHMENT_TEXT = (50, 40, 20)       # Cor de texto em pergaminho
+PERCHMENT_BG = (245, 222, 179)      # Cor de fundo de pergaminho
+SHADOW = (10, 10, 10, 100)          # Sombra para profundidade
+SUCCESS_GREEN = (0, 100, 0)         # Verde para mensagens de sucesso
+ERROR_RED = (150, 0, 0)             # Vermelho para mensagens de erro
+BUTTON_BASE = (101, 67, 33)         # Cor base dos botões
+BUTTON_HOVER = (139, 115, 85)       # Cor dos botões ao passar mouse
+
+# =============================================================================
+# SISTEMA DE FONTES MEDIEVAIS
+# =============================================================================
+
+def load_font(path, size):
+    """
+    Carrega uma fonte personalizada com fallback para fonte padrão
+    
+    Args:
+        path (str): Caminho para o arquivo de fonte
+        size (int): Tamanho da fonte em pontos
+    
+    Returns:
+        Font: Objeto de fonte do Pygame
+    """
+    try:
+        return pygame.font.Font(path, size)
+    except Exception as e:
+        # Se a fonte personalizada falhar, usa fonte padrão como backup
+        print(f"Aviso: não foi possível carregar '{path}' ({e}). Usando fonte padrão.")
+        return pygame.font.SysFont("timesnewroman", size)
+
+# Carrega as fontes em diferentes tamanhos para hierarquia visual
+font_path = "font/MorrisRomanAlternate-Black.ttf"
+title_font = load_font(font_path, 48)    # Fonte para títulos principais
+font = load_font(font_path, 28)          # Fonte para texto normal
+small_font = load_font(font_path, 22)    # Fonte para texto secundário
+
+# =============================================================================
+# SISTEMA DE ÁUDIO E MÚSICA
+# =============================================================================
+
+try:
+    # Carrega e toca música de fundo em loop
+    musica_fundo = pygame.mixer.music.load('audio/Lightning Traveler - Inspiring Epic.mp3.mp3') 
+    pygame.mixer.music.play(-1)  # -1 significa loop infinito
+except pygame.error as e:
+    print(f"Aviso: Não foi possível carregar a música de fundo: {e}")
+
+# =============================================================================
+# FUNÇÕES AUXILIARES PARA CARREGAMENTO DE RECURSOS
+# =============================================================================
+
+def load_background_image(path, size):
+    """
+    Carrega e redimensiona uma imagem de fundo com tratamento de erro
+    
+    Args:
+        path (str): Caminho para a imagem
+        size (tuple): Tupla (largura, altura) para redimensionamento
+    
+    Returns:
+        Surface: Superfície Pygame com a imagem carregada
+    """
+    try:
+        if not os.path.exists(path):
+            raise FileNotFoundError
+        # Carrega imagem com transparência
+        img = pygame.image.load(path).convert_alpha()
+        return pygame.transform.scale(img, size)
+    except Exception as e:
+        # Fallback: cria fundo sólido se a imagem falhar
+        print(f"Aviso: Imagem de fundo '{path}' não carregada ({e}). Usando cor sólida.")
+        s = pygame.Surface(size)
+        s.fill(DARK_BROWN)
+        return s
+
+# Carrega a imagem de fundo principal
+BACKGROUND_IMAGE = load_background_image("imagens/tela_fundo.jpg", (SCREEN_WIDTH, SCREEN_HEIGHT))
+
+# Define a área retangular onde o conteúdo do "pergaminho" será desenhado
+PERGAMINO_CONTENT_RECT = pygame.Rect(180, 100, 680, 480)
+
+# =============================================================================
+# CLASSE GERENCIADORA DO BANCO DE DADOS
+# =============================================================================
+
+class DatabaseManager:
+    """
+    Gerencia todas as operações de banco de dados do jogo
+    
+    Responsabilidades:
+    - Conexão com o banco SQLite
+    - Operações CRUD de jogadores
+    - Verificação de credenciais
+    - Gerenciamento de personagens
+    """
+    
+    def __init__(self):
+        """Inicializa o gerenciador e conecta ao banco"""
+        self.db_path = 'banco/rpg.db'
+        self.conn = None
+        self.connect()
+        
+    def connect(self):
+        """
+        Estabelece conexão com o banco de dados
+        
+        Returns:
+            bool: True se conectou com sucesso, False caso contrário
+        """
+        try:
+            self.conn = sqlite3.connect(self.db_path)
+            # Configura para retornar linhas como dicionários
+            self.conn.row_factory = sqlite3.Row
+            cursor = self.conn.cursor()
+            # Ativa chaves estrangeiras para integridade referencial
+            cursor.execute("PRAGMA foreign_keys = ON")
+            return True
+        except sqlite3.Error as e:
+            print(f"Erro ao conectar ao banco: {e}")
+            return False
+            
+    def close(self):
+        """Fecha a conexão com o banco de dados"""
+        if self.conn:
+            self.conn.close()
+            
+    def usuario_existe(self, nome_usuario, email):
+        """
+        Verifica se um usuário ou email já está cadastrado
+        
+        Args:
+            nome_usuario (str): Nome de usuário para verificar
+            email (str): Email para verificar
+        
+        Returns:
+            bool: True se o usuário ou email já existem
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT 1 FROM Jogador WHERE nome_usuario = ? OR email = ?", 
+                         (nome_usuario, email))
+            return bool(cursor.fetchone())
+        except sqlite3.Error as e:
+            print(f"Erro ao verificar usuário: {e}")
+            return True  # Por segurança, assume que existe em caso de erro
+
+    def cadastrar_jogador(self, nome_usuario, email, senha):
+        """
+        Registra um novo jogador no sistema
+        
+        Args:
+            nome_usuario (str): Nome escolhido pelo jogador
+            email (str): Email do jogador
+            senha (str): Senha em texto puro (será hasheada)
+        
+        Returns:
+            tuple: (sucesso, mensagem)
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Verifica se usuário ou email já existem
+            if self.usuario_existe(nome_usuario, email):
+                return False, "Usuário ou email já existem!"
+
+            # Validação básica de senha
+            if len(senha) < 6:
+                return False, "A senha deve ter pelo menos 6 caracteres!"
+            
+            # Cria hash seguro da senha (nunca armazena senhas em texto puro)
+            hashed_senha = hashlib.sha256(senha.encode()).hexdigest()
+            
+            # Insere novo jogador no banco
+            cursor.execute(
+                "INSERT INTO Jogador (nome_usuario, email, senha) VALUES (?, ?, ?)",
+                (nome_usuario, email, hashed_senha)
+            )
+            
+            # Obtém o ID do novo jogador
+            novo_id = cursor.lastrowid
+            self.conn.commit()
+            
+            # Registra a ação no log do sistema
+            cursor.execute(
+                "INSERT INTO Sistema_Log (tipo, mensagem) VALUES (?, ?)",
+                ("CADASTRO", f"Novo jogador cadastrado: {nome_usuario} (ID: {novo_id})")
+            )
+            self.conn.commit()
+            
+            return True, f"Herói criado com sucesso! (ID: {novo_id})"
+        
+        except sqlite3.IntegrityError:
+            return False, "Usuário ou email já existem!"
+        except sqlite3.Error as e:
+            return False, f"Erro no banco: {e}"
+
+    def fazer_login(self, nome_usuario, senha):
+        """
+        Autentica um jogador no sistema
+        
+        Args:
+            nome_usuario (str): Nome de usuário
+            senha (str): Senha em texto puro
+        
+        Returns:
+            tuple: (sucesso, dados_do_jogador_ou_mensagem_de_erro)
+        """
+        try:
+            cursor = self.conn.cursor()
+            # Busca usuário pelo nome
+            cursor.execute("SELECT * FROM Jogador WHERE nome_usuario = ?", (nome_usuario,))
+            row = cursor.fetchone()
+
+            if not row:
+                return False, "Usuário ou senha inválidos!"
+            
+            # Verifica a senha comparando hashes
+            hashed_senha = hashlib.sha256(senha.encode()).hexdigest()
+            if row['senha'] != hashed_senha:
+                return False, "Usuário ou senha inválidos!"
+            
+            # Prepara dados do jogador para a sessão
+            jogador = {
+                'id_jogador': row['id_jogador'],
+                'nome_usuario': row['nome_usuario'],
+                'email': row['email']
+            }
+
+            # Registra login bem-sucedido
+            cursor.execute(
+                "INSERT INTO Sistema_Log (tipo, mensagem) VALUES (?, ?)",
+                ("LOGIN", f"Jogador {nome_usuario} fez login")
+            )
+            self.conn.commit()
+            return True, jogador
+        
+        except sqlite3.Error as e:
+            return False, f"Erro no banco: {e}"
+
+    def jogador_tem_personagem(self, id_jogador):
+        """
+        Verifica se o jogador já criou um personagem
+        
+        Args:
+            id_jogador (int): ID do jogador
+        
+        Returns:
+            bool: True se o jogador tem personagem
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT 1 FROM Personagem WHERE id_jogador = ?", (id_jogador,))
+            return bool(cursor.fetchone())
+        except sqlite3.Error as e:
+            print(f"Erro ao verificar personagem: {e}")
+            return False
+
+    def obter_personagem_jogador(self, id_jogador):
+        """
+        Obtém os dados do personagem de um jogador
+        
+        Args:
+            id_jogador (int): ID do jogador
+        
+        Returns:
+            dict: Dados do personagem ou None se não existir
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Consulta simplificada para a estrutura atual do banco
+            cursor.execute("""
+                SELECT * FROM Personagem 
+                WHERE id_jogador = ?
+            """, (id_jogador,))
+            
+            row = cursor.fetchone()
+            
+            if row:
+                # Converte linha SQLite para dicionário Python
+                personagem = dict(row)
+                return personagem
+            return None
+            
+        except sqlite3.Error as e:
+            print(f"Erro ao obter personagem: {e}")
+            return None
+
+# =============================================================================
+# COMPONENTES DE INTERFACE DO USUÁRIO
+# =============================================================================
+
+class InputBox:
+    """
+    Caixa de entrada de texto personalizada
+    
+    Funcionalidades:
+    - Placeholder quando vazia
+    - Modo senha (mostra asteriscos)
+    - Cursor piscante
+    - Destaque quando ativa
+    """
+    
+    def __init__(self, x, y, width, height, text='', placeholder='', is_password=False):
+        """
+        Inicializa uma caixa de entrada
+        
+        Args:
+            x, y (int): Posição na tela
+            width, height (int): Dimensões da caixa
+            text (str): Texto inicial
+            placeholder (str): Texto de orientação quando vazio
+            is_password (bool): Se é campo de senha
+        """
+        self.rect = pygame.Rect(x, y, width, height)
+        self.color = MEDIEVAL_BROWN
+        self.text = text
+        self.placeholder = placeholder
+        self.is_password = is_password
+        self.active = False              # Controle de foco
+        self.cursor_visible = True       # Estado do cursor piscante
+        self.timer = 0                   # Contador para piscar cursor
+        self.update_surface()
+
+    def update_surface(self):
+        """Atualiza a superfície de texto renderizada"""
+        # Para senhas, mostra asteriscos em vez do texto real
+        display_text = '*' * len(self.text) if self.is_password else self.text
+        text_color = PERCHMENT_TEXT
+        
+        # Adiciona cursor piscante se estiver ativa
+        if self.active and self.cursor_visible:
+            display_text += '|'
+            
+        # Mostra placeholder se estiver vazia e não focada
+        if not self.text and not self.active:
+            self.txt_surface = font.render(self.placeholder, True, GOLD_DARK)
+        else:
+            self.txt_surface = font.render(display_text, True, text_color)
+
+    def handle_event(self, event):
+        """
+        Processa eventos do Pygame para esta caixa de texto
+        
+        Args:
+            event: Evento do Pygame a ser processado
+        
+        Returns:
+            str: Texto atual ou None se não processado
+        """
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Ativa/desativa ao clicar
+            self.active = self.rect.collidepoint(event.pos)
+            self.color = GOLD_LIGHT if self.active else MEDIEVAL_BROWN
+            self.cursor_visible = True
+            self.timer = 0
+            self.update_surface()
+                
+        if event.type == pygame.KEYDOWN:
+            if self.active:
+                self.cursor_visible = True
+                self.timer = 0
+                if event.key == pygame.K_BACKSPACE:
+                    # Remove último caractere
+                    self.text = self.text[:-1]
+                else:
+                    # Adiciona caractere se for imprimível e dentro do limite
+                    if len(self.text) < 30 and event.unicode.isprintable():
+                        self.text += event.unicode
+                self.update_surface()
+                return self.text
+
+    def update(self):
+        """Atualiza estado interno (cursor piscante)"""
+        if self.active:
+            self.timer += CLOCK.get_time()
+            # Alterna visibilidade do cursor a cada 500ms
+            if self.timer > 500:
+                self.cursor_visible = not self.cursor_visible
+                self.timer = 0
+                self.update_surface()
+
+    def draw(self, screen):
+        """
+        Desenha a caixa de texto na tela
+        
+        Args:
+            screen: Surface do Pygame onde desenhar
+        """
+        # Fundo do pergaminho
+        pygame.draw.rect(screen, PERCHMENT_BG, self.rect)
+        # Borda
+        pygame.draw.rect(screen, self.color, self.rect, 3, border_radius=5)
+        
+        # Centraliza texto verticalmente
+        text_y = self.rect.y + (self.rect.height - self.txt_surface.get_height()) // 2
+        screen.blit(self.txt_surface, (self.rect.x + 10, text_y))
+
+
+class Button:
+    """
+    Botão interativo personalizado
+    
+    Funcionalidades:
+    - Efeito hover (muda cor ao passar mouse)
+    - Sombra para profundidade
+    - Bordas arredondadas
+    - Texto centralizado
+    """
+    
+    def __init__(self, x, y, width, height, text, color, hover_color, font_size=28):
+        """
+        Inicializa um botão
+        
+        Args:
+            x, y (int): Posição na tela
+            width, height (int): Dimensões do botão
+            text (str): Texto do botão
+            color: Cor normal do botão
+            hover_color: Cor quando mouse está sobre
+            font_size (int): Tamanho da fonte
+        """
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.color = color
+        self.hover_color = hover_color
+        self.current_color = color
+        self.font = load_font(font_path, font_size)
+        self.txt_surface = self.font.render(text, True, PERCHMENT_BG)
+
+    def draw(self, screen):
+        """Desenha o botão na tela com efeito de sombra"""
+        # Desenha sombra (offset da posição real)
+        shadow_rect = self.rect.move(2, 2)
+        pygame.draw.rect(screen, SHADOW, shadow_rect, border_radius=8)
+        
+        # Desenha botão principal
+        pygame.draw.rect(screen, self.current_color, self.rect, border_radius=8)
+        # Borda decorativa
+        pygame.draw.rect(screen, DARK_BROWN, self.rect, 3, border_radius=8)
+        
+        # Centraliza e desenha texto
+        text_rect = self.txt_surface.get_rect(center=self.rect.center)
+        screen.blit(self.txt_surface, text_rect)
+
+    def is_hovered(self, pos):
+        """
+        Verifica se o mouse está sobre o botão
+        
+        Args:
+            pos (tuple): Posição (x, y) do mouse
+        
+        Returns:
+            bool: True se mouse está sobre botão
+        """
+        return self.rect.collidepoint(pos)
+
+    def handle_event(self, event, callback):
+        """
+        Processa eventos do mouse para o botão
+        
+        Args:
+            event: Evento do Pygame
+            callback: Função a ser chamada quando clicado
+        
+        Returns:
+            bool: True se botão foi clicado
+        """
+        # Efeito hover - muda cor quando mouse passa sobre
+        if event.type == pygame.MOUSEMOTION:
+            self.current_color = self.hover_color if self.is_hovered(event.pos) else self.color
+        
+        # Clique do mouse
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.is_hovered(event.pos):
+                callback()  # Executa ação do botão
+                return True
+        return False
+
+# =============================================================================
+# TELAS DO JOGO - CADA CLASSE REPRESENTA UMA TELA/ESTADO DO JOGO
+# =============================================================================
+
+class TelaLogin:
+    """
+    Tela de login - primeira tela que o usuário vê
+    
+    Permite:
+    - Login com usuário e senha
+    - Navegação para cadastro
+    - Feedback visual de erros/sucesso
+    """
+    
+    def __init__(self, gerenciador):
+        """
+        Inicializa a tela de login
+        
+        Args:
+            gerenciador: Instância do DatabaseManager
+        """
+        self.gerenciador = gerenciador
+        
+        # Posiciona elementos relativos ao centro do pergaminho
+        content_center_x = PERGAMINO_CONTENT_RECT.centerx
+        content_top = PERGAMINO_CONTENT_RECT.top
+
+        # Caixas de entrada para credenciais
+        INPUT_WIDTH = 350
+        INPUT_HEIGHT = 45
+        
+        self.username_box = InputBox(
+            content_center_x - INPUT_WIDTH // 2, content_top + 150, 
+            INPUT_WIDTH, INPUT_HEIGHT, 
+            placeholder='Nome de Usuário'
+        )
+        self.password_box = InputBox(
+            content_center_x - INPUT_WIDTH // 2, content_top + 230, 
+            INPUT_WIDTH, INPUT_HEIGHT, 
+            placeholder='Senha Secreta', is_password=True
+        )
+        
+        # Botões de ação
+        BUTTON_WIDTH = 280
+        BUTTON_HEIGHT = 55
+        self.login_button = Button(
+            content_center_x - BUTTON_WIDTH // 2, content_top + 320, 
+            BUTTON_WIDTH, BUTTON_HEIGHT, 
+            "Entrar no Reino", BUTTON_BASE, BUTTON_HOVER
+        )
+        self.register_button = Button(
+            content_center_x - BUTTON_WIDTH // 2, content_top + 390, 
+            BUTTON_WIDTH, BUTTON_HEIGHT, 
+            "Criar Novo Herói", SUCCESS_GREEN, BUTTON_HOVER
+        )
+        
+        # Sistema de mensagens para feedback
+        self.message = ""
+        self.message_color = ERROR_RED
+        self.jogador_logado = None  # Armazena dados do jogador após login
+
+    def handle_events(self, events):
+        """
+        Processa todos os eventos da tela
+        
+        Args:
+            events: Lista de eventos do Pygame
+        
+        Returns:
+            str: Próxima tela a ser mostrada
+        """
+        for event in events:
+            # Delega eventos para os componentes
+            self.username_box.handle_event(event)
+            self.password_box.handle_event(event)
+            
+            # Verifica cliques nos botões
+            if self.login_button.handle_event(event, self.login):
+                if self.jogador_logado: 
+                    return "game"  # Vai para tela principal
+            
+            if self.register_button.handle_event(event, self.go_to_register):
+                return "register"  # Vai para tela de cadastro
+            
+            # Enter também faz login
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+                if self.username_box.active or self.password_box.active:
+                    if self.login():
+                        return "game"
+        return "login"  # Permanece nesta tela
+
+    def login(self):
+        """
+        Processa tentativa de login
+        
+        Returns:
+            bool: True se login foi bem-sucedido
+        """
+        username = self.username_box.text.strip()
+        password = self.password_box.text.strip()
+        
+        # Validação básica
+        if not username or not password:
+            self.message = "Preencha todos os campos do pergaminho!"
+            self.message_color = ERROR_RED
+            return False
+        
+        # Tenta autenticar no banco
+        success, result = self.gerenciador.fazer_login(username, password)
+        if success:
+            self.message = f"Bem-vindo(a), Cavaleiro(a) {username}!"
+            self.message_color = SUCCESS_GREEN
+            self.jogador_logado = result
+            return True
+        else:
+            self.message = result
+            self.message_color = ERROR_RED
+            return False
+
+    def go_to_register(self): 
+        """Navega para tela de cadastro"""
+        return "register"
+
+    def update(self):
+        """Atualiza componentes da tela"""
+        self.username_box.update()
+        self.password_box.update()
+        
+    def draw(self, screen):
+        """Renderiza toda a tela de login"""
+        # Fundo com imagem temática
+        screen.blit(BACKGROUND_IMAGE, (0, 0))
+
+        # Cores especiais para o título
+        TITLE_GOLD = (212, 175, 55)
+        TITLE_OUTLINE = (60, 40, 10)
+
+        # Renderiza título com efeito de sombra
+        title_text = "CRÔNICAS DE ELDORIA"
+        title_surface = title_font.render(title_text, True, TITLE_GOLD)
+        shadow_surface = title_font.render(title_text, True, TITLE_OUTLINE)
+        title_rect = title_surface.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 40))
+
+        # Desenha sombra e depois texto principal
+        screen.blit(shadow_surface, (title_rect.x + 3, title_rect.y + 3))
+        screen.blit(title_surface, title_rect)
+
+        # Rótulos para os campos
+        username_label = small_font.render("Usuário:", True, PERCHMENT_TEXT)
+        password_label = small_font.render("Senha:", True, PERCHMENT_TEXT)
+    
+        # Posiciona rótulos acima dos campos
+        screen.blit(username_label, (self.username_box.rect.x, self.username_box.rect.y - 30))
+        screen.blit(password_label, (self.password_box.rect.x, self.password_box.rect.y - 30))
+    
+        # Desenha componentes interativos
+        self.username_box.draw(screen)
+        self.password_box.draw(screen)
+        self.login_button.draw(screen)
+        self.register_button.draw(screen)
+
+        # Mensagem de feedback (erro/sucesso)
+        if self.message:
+            msg_surface = small_font.render(self.message, True, self.message_color)
+            msg_rect = msg_surface.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.bottom - 20))
+            screen.blit(msg_surface, msg_rect)
+
+
+class TelaCadastro:
+    """
+    Tela de cadastro de novos jogadores
+    
+    Coleta:
+    - Nome de usuário
+    - Email 
+    - Senha e confirmação
+    """
+    
+    def __init__(self, gerenciador):
+        self.gerenciador = gerenciador
+        
+        content_center_x = PERGAMINO_CONTENT_RECT.centerx
+        content_top = PERGAMINO_CONTENT_RECT.top
+
+        # Campos do formulário de cadastro
+        INPUT_WIDTH = 350
+        INPUT_HEIGHT = 40
+        
+        self.username_box = InputBox(
+            content_center_x - INPUT_WIDTH // 2, content_top + 90, 
+            INPUT_WIDTH, INPUT_HEIGHT, 
+            placeholder='Nome de Herói'
+        )
+        self.email_box = InputBox(
+            content_center_x - INPUT_WIDTH // 2, content_top + 160, 
+            INPUT_WIDTH, INPUT_HEIGHT, 
+            placeholder='Email do Reino'
+        )
+        self.password_box = InputBox(
+            content_center_x - INPUT_WIDTH // 2, content_top + 230, 
+            INPUT_WIDTH, INPUT_HEIGHT, 
+            placeholder='Crie uma Senha Forte', is_password=True
+        )
+        self.confirm_password_box = InputBox(
+            content_center_x - INPUT_WIDTH // 2, content_top + 300, 
+            INPUT_WIDTH, INPUT_HEIGHT, 
+            placeholder='Confirme a Senha', is_password=True
+        )
+        
+        # Botões de ação
+        BUTTON_WIDTH = 280
+        BUTTON_HEIGHT = 50
+        self.register_button = Button(
+            content_center_x - BUTTON_WIDTH // 2, content_top + 370, 
+            BUTTON_WIDTH, BUTTON_HEIGHT, 
+            "Criar Herói", SUCCESS_GREEN, BUTTON_HOVER
+        )
+        self.back_button = Button(
+            content_center_x - BUTTON_WIDTH // 2, content_top + 430, 
+            BUTTON_WIDTH, BUTTON_HEIGHT, 
+            "Voltar ao Portão", BUTTON_BASE, BUTTON_HOVER
+        )
+        
+        self.message = ""
+        self.message_color = ERROR_RED
+
+    def handle_events(self, events):
+        """Processa eventos da tela de cadastro"""
+        for event in events:
+            # Delega eventos para todos os campos
+            self.username_box.handle_event(event)
+            self.email_box.handle_event(event)
+            self.password_box.handle_event(event)
+            self.confirm_password_box.handle_event(event)
+            
+            # Botão de cadastro
+            if self.register_button.handle_event(event, self.register):
+                pass 
+            
+            # Botão voltar
+            if self.back_button.handle_event(event, self.go_back): 
+                return "login"
+        
+        return "register"
+
+    def register(self):
+        """Processa tentativa de cadastro"""
+        # Obtém e limpa dados dos campos
+        username = self.username_box.text.strip()
+        email = self.email_box.text.strip()
+        password = self.password_box.text.strip()
+        confirm_password = self.confirm_password_box.text.strip()
+        
+        # Valida campos obrigatórios
+        if not all([username, email, password, confirm_password]):
+            self.message = "Preencha todos os campos do Cadastro!"
+            self.message_color = ERROR_RED
+            return False
+        
+        # Verifica se senhas coincidem
+        if password != confirm_password:
+            self.message = "As senhas não coincidem. Confirme a sua senha!"
+            self.message_color = ERROR_RED
+            return False
+        
+        # Tenta cadastrar no banco
+        success, result = self.gerenciador.cadastrar_jogador(username, email, password)
+        self.message = result
+        self.message_color = SUCCESS_GREEN if success else ERROR_RED
+        
+        if success: 
+            self.limpar_campos()  # Limpa formulário após sucesso
+            
+        return success
+
+    def limpar_campos(self):
+        """Reseta todos os campos do formulário"""
+        for box in [self.username_box, self.email_box, self.password_box, self.confirm_password_box]:
+            box.text = ""
+            box.active = False
+            box.color = MEDIEVAL_BROWN
+            box.update_surface()
+
+    def go_back(self): 
+        """Volta para tela de login"""
+        return "login"
+
+    def update(self):
+        """Atualiza componentes da tela"""
+        self.username_box.update()
+        self.email_box.update()
+        self.password_box.update()
+        self.confirm_password_box.update()
+
+    def draw(self, screen):
+        """Renderiza tela de cadastro"""
+        screen.blit(BACKGROUND_IMAGE, (0, 0))
+        
+        # Título da tela
+        title = title_font.render("Criar NOVO HERÓI", True, GOLD_LIGHT)
+        title_rect = title.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 40))
+        screen.blit(title, title_rect)
+        
+        # Rótulos dos campos
+        username_label = small_font.render("Usuário:", True, PERCHMENT_TEXT)
+        email_label = small_font.render("Email:", True, PERCHMENT_TEXT)
+        password_label = small_font.render("Senha:", True, PERCHMENT_TEXT)
+        confirm_label = small_font.render("Confirmar:", True, PERCHMENT_TEXT)
+        
+        # Posiciona rótulos
+        screen.blit(username_label, (self.username_box.rect.x, self.username_box.rect.y - 30))
+        screen.blit(email_label, (self.email_box.rect.x, self.email_box.rect.y - 30))
+        screen.blit(password_label, (self.password_box.rect.x, self.password_box.rect.y - 30))
+        screen.blit(confirm_label, (self.confirm_password_box.rect.x, self.confirm_password_box.rect.y - 30))
+        
+        # Desenha componentes
+        self.username_box.draw(screen)
+        self.email_box.draw(screen)
+        self.password_box.draw(screen)
+        self.confirm_password_box.draw(screen)
+        self.register_button.draw(screen)
+        self.back_button.draw(screen)
+        
+        # Mensagem de feedback
+        if self.message:
+            msg_surface = small_font.render(self.message, True, self.message_color)
+            msg_rect = msg_surface.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.bottom - 20))
+            screen.blit(msg_surface, msg_rect)
+
+
+class TelaJogo:
+    """
+    Tela principal do jogo após login
+    
+    Funcionalidades:
+    - Mostra informações do jogador
+    - Permite criar personagem
+    - Iniciar o jogo principal
+    - Logout
+    """
+    
+    def __init__(self, gerenciador, jogador):
+        """
+        Inicializa tela principal
+        
+        Args:
+            gerenciador: Instância do DatabaseManager
+            jogador: Dados do jogador logado
+        """
+        self.gerenciador = gerenciador
+        self.jogador = jogador 
+        
+        content_center_x = PERGAMINO_CONTENT_RECT.centerx
+        content_top = PERGAMINO_CONTENT_RECT.top
+
+        # Botões da tela principal
+        BUTTON_WIDTH = 280
+        BUTTON_HEIGHT = 55
+        
+        self.sair_button = Button(
+            PERGAMINO_CONTENT_RECT.left + 20, PERGAMINO_CONTENT_RECT.top + 20, 
+            100, 50, "Sair", ERROR_RED, BUTTON_HOVER
+        )
+        self.criar_personagem_button = Button(
+            content_center_x - BUTTON_WIDTH // 2, content_top + 280, 
+            BUTTON_WIDTH, BUTTON_HEIGHT, 
+            "Escolher Personagem", SUCCESS_GREEN, BUTTON_HOVER
+        )
+        self.iniciar_jogo_button = Button(
+            content_center_x - BUTTON_WIDTH // 2, content_top + 350, 
+            BUTTON_WIDTH, BUTTON_HEIGHT, 
+            "Iniciar Jornada", GOLD_DARK, BUTTON_HOVER
+        )
+
+        self.message = ""
+        self.message_color = SUCCESS_GREEN
+        self.personagem = None
+        self.carregar_personagem()  # Carrega personagem se existir
+
+    def carregar_personagem(self):
+        """Carrega dados do personagem do banco"""
+        self.personagem = self.gerenciador.obter_personagem_jogador(self.jogador['id_jogador'])
+
+    def criar_personagem(self):
+        """
+        SOLUÇÃO ROBUSTA: Abre criador de personagem sem fechar o jogo
+        
+        Esta versão mantém o programa principal rodando e:
+        - Para música temporariamente
+        - Executa criador em subprocesso
+        - Recarrega dados após criação
+        - Reinicia música
+        - Mostra feedback ao usuário
+        """
+        print(f"Jogador {self.jogador['id_jogador']} está criando um personagem...")
+        
+        # Salva ID do jogador para o criador de personagem
+        with open('temp_jogador_id.txt', 'w') as f:
+            f.write(str(self.jogador['id_jogador']))
+        
+        # Para música temporariamente para evitar conflitos
+        pygame.mixer.music.stop()
+        
+        try:
+            # Encontra caminho absoluto do script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            personagem_script = os.path.join(current_dir, "Escoher_personagem.py")
+            
+            if os.path.exists(personagem_script):
+                print("Executando criador de personagem...")
+                
+                # Executa criador em subprocesso (não fecha este programa)
+                result = subprocess.run(
+                    [sys.executable, personagem_script], 
+                    cwd=current_dir, 
+                    capture_output=True, 
+                    text=True,
+                    timeout=300  # Timeout de 5 minutos por segurança
+                )
+                
+                if result.returncode == 0:
+                    print("Personagem criado com sucesso!")
+                    self.message = "Personagem criado com sucesso!"
+                    self.message_color = SUCCESS_GREEN
+                    
+                    # Recarrega dados do personagem do banco
+                    self.carregar_personagem()
+                    
+                else:
+                    # Captura e mostra erro detalhado
+                    error_msg = result.stderr if result.stderr else "Erro desconhecido"
+                    print(f"Erro ao criar personagem: {error_msg}")
+                    self.message = f"Erro ao criar personagem: {error_msg}"
+                    self.message_color = ERROR_RED
+                    
+            else:
+                error_msg = f"Arquivo {personagem_script} não encontrado!"
+                print(error_msg)
+                self.message = error_msg
+                self.message_color = ERROR_RED
+                
+        except subprocess.TimeoutExpired:
+            print("Tempo limite excedido ao criar personagem")
+            self.message = "Tempo limite excedido ao criar personagem"
+            self.message_color = ERROR_RED
+        except Exception as e:
+            error_msg = f"Erro ao abrir seletor de personagens: {e}"
+            print(error_msg)
+            self.message = error_msg
+            self.message_color = ERROR_RED
+        
+        # Reinicia música de fundo
+        try:
+            pygame.mixer.music.play(-1)
+        except:
+            pass  # Ignora erros na música se houver
+        
+        # IMPORTANTE: Não chama sys.exit() - mantém programa rodando
+        return "game"  # Permanece na tela de jogo
+
+    def iniciar_jogo(self):
+        """
+        Inicia o jogo principal (funcionalidade futura)
+        
+        Returns:
+            bool: True se pode iniciar (tem personagem)
+        """
+        # Verifica se jogador tem personagem
+        if not self.gerenciador.jogador_tem_personagem(self.jogador['id_jogador']):
+            self.message = "Você precisa criar um personagem primeiro!"
+            self.message_color = ERROR_RED
+            return False
+        
+        self.message = "Jornada iniciada! Boa sorte, herói!"
+        self.message_color = SUCCESS_GREEN
+        
+        # FUTURO: Aqui você iniciaria o jogo principal
+        # Exemplo: subprocess.run([sys.executable, "jogo_principal.py"])
+        
+        return True
+
+    def sair(self):
+        """Faz logout e volta para tela de login"""
+        return "login"
+
+    def handle_events(self, events):
+        """Processa eventos da tela principal"""
+        for event in events:
+            if self.sair_button.handle_event(event, self.sair): 
+                return "login"
+            if self.criar_personagem_button.handle_event(event, self.criar_personagem): 
+                # Agora não muda de tela - processa e permanece aqui
+                pass
+            if self.iniciar_jogo_button.handle_event(event, self.iniciar_jogo):
+                pass
+        return "game"  # Sempre retorna para esta tela
+
+    def update(self):
+        """Atualiza estado da tela (pode ser expandido)"""
+        pass
+
+    def draw(self, screen):
+        """Renderiza tela principal do jogo"""
+        screen.blit(BACKGROUND_IMAGE, (0, 0))
+        
+        # Título de boas-vindas personalizado
+        title_text = f"BEM-VINDO(A), {self.jogador['nome_usuario'].upper()}!"
+        if len(title_text) > 30:  # Trunca se muito longo
+             title_text = f"BEM-VINDO(A), {self.jogador['nome_usuario'][:20].upper()}..."
+
+        title = title_font.render(title_text, True, GOLD_LIGHT)
+        title_rect = title.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 60))
+        screen.blit(title, title_rect)
+        
+        # Linha decorativa separadora
+        pygame.draw.line(screen, DARK_BROWN, 
+                         (PERGAMINO_CONTENT_RECT.left + 50, PERGAMINO_CONTENT_RECT.top + 120), 
+                         (PERGAMINO_CONTENT_RECT.right - 50, PERGAMINO_CONTENT_RECT.top + 120), 2)
+        
+        # Informações do jogador
+        info_id = font.render(f"ID do Aventureiro: {self.jogador['id_jogador']}", True, PERCHMENT_TEXT)
+        info_email = font.render(f"Conexão do Reino: {self.jogador['email']}", True, PERCHMENT_TEXT)
+        
+        screen.blit(info_id, info_id.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 160)))
+        screen.blit(info_email, info_email.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 200)))
+        
+        # Informações do personagem (se existir)
+        if self.personagem:
+            personagem_info = font.render(
+                f"Personagem: {self.personagem['nome']} - Nível {self.personagem['nivel']}", 
+                True, SUCCESS_GREEN
+            )
+            personagem_detalhes = small_font.render(
+                f"Classe: {self.personagem['classe']} | Vida: {self.personagem['pontos_vida']}/{self.personagem['pontos_vida_max']}", 
+                True, PERCHMENT_TEXT
+            )
+            
+            screen.blit(personagem_info, personagem_info.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 240)))
+            screen.blit(personagem_detalhes, personagem_detalhes.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 270)))
+        else:
+            # Mensagem se não tiver personagem
+            sem_personagem = font.render("Nenhum personagem criado ainda", True, ERROR_RED)
+            screen.blit(sem_personagem, sem_personagem.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.top + 240)))
+        
+        # Desenha botões
+        self.criar_personagem_button.draw(screen)
+        self.iniciar_jogo_button.draw(screen)
+        self.sair_button.draw(screen)
+        
+        # Mensagem de feedback
+        if self.message:
+            msg_surface = small_font.render(self.message, True, self.message_color)
+            msg_rect = msg_surface.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.bottom - 40))
+            screen.blit(msg_surface, msg_rect)
+        
+        # Instrução/lore do jogo
+        instrucao = small_font.render("O seu destino aguarda no reino de Eldoria!", True, GOLD_DARK)
+        instrucao_rect = instrucao.get_rect(center=(PERGAMINO_CONTENT_RECT.centerx, PERGAMINO_CONTENT_RECT.bottom - 80))
+        screen.blit(instrucao, instrucao_rect)
+
+# =============================================================================
+# SISTEMA PRINCIPAL - ORQUESTRA TODAS AS TELAS
+# =============================================================================
+
+class SistemaLogin:
+    """
+    Sistema principal que gerencia o fluxo entre telas
+    
+    Funciona como uma máquina de estados:
+    - login → cadastro → game → login
+    """
+    
+    def __init__(self):
+        """Inicializa o sistema com todas as telas"""
+        self.gerenciador = DatabaseManager()
+        self.tela_login = TelaLogin(self.gerenciador)
+        self.tela_cadastro = TelaCadastro(self.gerenciador)
+        self.tela_jogo = None
+        self.tela_atual = "login"  # Estado inicial
+        self.executando = True
+        self.jogador_logado = None
+
+    def executar(self):
+        """
+        Loop principal do jogo - atualiza 60 vezes por segundo
+        
+        Responsável por:
+        - Processar eventos
+        - Atualizar estado
+        - Renderizar telas
+        - Controlar transições
+        """
+        while self.executando:
+            # Captura todos os eventos do frame atual
+            eventos = pygame.event.get()
+            for evento in eventos:
+                if evento.type == pygame.QUIT:
+                    self.executando = False
+
+            # MÁQUINA DE ESTADOS - controla qual tela está ativa
+            if self.tela_atual == "login":
+                prox_tela = self.tela_login.handle_events(eventos)
+                self.tela_login.update()
+                self.tela_login.draw(screen)
+                
+                # Transições da tela de login
+                if prox_tela == "game" and self.tela_login.jogador_logado:
+                    self.jogador_logado = self.tela_login.jogador_logado
+                    self.tela_jogo = TelaJogo(self.gerenciador, self.jogador_logado)
+                    self.tela_atual = prox_tela
+                elif prox_tela == "register":
+                    self.tela_atual = prox_tela
+                    
+            elif self.tela_atual == "register":
+                prox_tela = self.tela_cadastro.handle_events(eventos)
+                self.tela_cadastro.update()
+                self.tela_cadastro.draw(screen)
+                
+                # Transição de volta para login
+                if prox_tela == "login":
+                    # Passa mensagem de sucesso se cadastrou
+                    if self.tela_cadastro.message_color == SUCCESS_GREEN:
+                         self.tela_login.message = "Cadastro feito! Entre no Reino."
+                         self.tela_login.message_color = SUCCESS_GREEN
+                    else:
+                         self.tela_login.message = ""
+                    self.tela_atual = prox_tela
+                
+            elif self.tela_atual == "game" and self.tela_jogo:
+                prox_tela = self.tela_jogo.handle_events(eventos)
+                self.tela_jogo.update()
+                self.tela_jogo.draw(screen)
+                
+                # Logout - volta para login
+                if prox_tela == "login":
+                    self.tela_atual = prox_tela
+                    self.jogador_logado = None
+                    self.tela_jogo = None
+
+            # Atualiza display e controla FPS
+            pygame.display.flip()
+            CLOCK.tick(FPS)
+
+        # Limpeza final quando o jogo termina
+        self.gerenciador.close()
+
+# =============================================================================
+# PONTO DE ENTRADA DO PROGRAMA
+# =============================================================================
+
+if __name__ == "__main__":
+    """
+    Inicia o jogo quando o arquivo é executado diretamente
+    
+    Fluxo:
+    1. Cria sistema principal
+    2. Executa loop do jogo
+    3. Limpa recursos ao sair
+    """
+    sistema = SistemaLogin()
+    sistema.executar()
+    pygame.quit()
+    sys.exit()

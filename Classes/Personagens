@@ -1,0 +1,132 @@
+class Personagem:
+    def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade):
+        self.id_personagem = id_personagem
+        self.nome = nome
+        self.nivel = nivel
+        self.forca = forca
+        self.pontos_vida = pontos_vida
+        self.ponto_fraco = ponto_fraco
+        self.habilidade = habilidade
+
+    def atacar_outro_personagem(self, alvo):
+        """Ataca outro personagem."""
+        pass
+
+    def defender_ataque(self):
+        """Defende um ataque recebido."""
+        pass
+
+    def usar_item(self, item):
+        """Utiliza um item do inventário."""
+        pass
+
+    def escolher_personagem(self):
+        """Escolhe um personagem para o jogador."""
+        pass
+
+    def adicionar_nome(self, novo_nome):
+        """Adiciona um nome ao personagem."""
+        pass
+
+    def adicionar_habilidade(self):
+        """Adiciona uma nova habilidade ao personagem."""
+        pass
+
+    def tomar_dano(self, dano):
+        """Reduz os pontos de vida do personagem ao receber dano."""
+        pass
+
+        class Guerreiro(Personagem):
+         def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, defesa, arma):
+            super().__init__(id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade)
+            self.defesa = defesa
+            self.arma = arma
+
+         def atacar_espada(self, alvo):
+            """Realiza um ataque com a espada."""
+            pass
+
+        def exibir_estatus(self):
+             """Exibe os status do guerreiro."""
+        pass
+
+        class Cavalheiro(Personagem):
+
+            def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, honra, montaria, arma):
+                super().__init__(id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade)
+                self.honra = honra
+                self.montaria = montaria
+                self.arma = arma
+
+            def desmontar_e_fortificar(self):
+                 """Desmonta da montaria e assume uma postura fortificada."""
+                 pass
+
+            def proteger_aliado(self, inimigo, aliado):
+                 """Protege um aliado de um ataque inimigo."""
+                 pass
+
+        class GuardiaoDoTempo(Personagem):
+            def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, conoenergia, memoria_universal):
+                super().__init__(id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade)
+                self.conoenergia = conoenergia
+                self.memoria_universal = memoria_universal
+
+            def voltar_turno(self):
+                 """Volta um turno no tempo."""
+            pass
+
+            def congelar_acao(self):
+             """Congela a ação de um alvo."""
+             pass
+
+        class Inimigo(Personagem):
+             def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, id_inimigo, tipo_inimigo, loot, ataque, fraqueza):
+                super().__init__(id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade)
+                self.id_inimigo = id_inimigo
+                self.tipo_inimigo = tipo_inimigo
+                self.loot = loot
+                self.ataque = ataque
+                self.fraqueza = fraqueza
+
+        class Sombrio(Inimigo):
+            def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, id_inimigo, tipo_inimigo, loot, ataque, fraqueza,corrupcao, aura_sombria):
+                super().__init__(id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, id_inimigo, tipo_inimigo, loot, ataque, fraqueza)
+                self.corrupcao = corrupcao
+                self.aura_sombria = aura_sombria
+
+            def drenar_vida(self):
+                 """Drena a vida de um alvo."""
+            pass
+
+            def esconder_na_sombra(self):
+             """Esconde-se nas sombras para evitar ataques."""
+            pass
+
+        class Bruxa(Inimigo):
+            def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, id_inimigo, tipo_inimigo, loot, ataque, fraqueza, poder_caotico, energia_instavel):
+                super().__init__(id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, id_inimigo, tipo_inimigo, loot, ataque, fraqueza)
+                self.poder_caotico = poder_caotico
+                self.energia_instavel = energia_instavel
+
+            def explosao_magica(self):
+                """Causa uma explosão de energia mágica."""
+            pass
+
+            def canalizar_energia(self):
+                """Canaliza energia para fortalecer seus ataques."""
+            pass
+
+        class Monstro(Inimigo):
+            def __init__(self, id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, id_inimigo, tipo_inimigo, loot, ataque, fraqueza, furia, natureza_em_grupo):
+                super().__init__(id_personagem, nome, nivel, forca, pontos_vida, ponto_fraco, habilidade, id_inimigo, tipo_inimigo, loot, ataque, fraqueza)
+                self.furia = furia
+                self.natureza_em_grupo = natureza_em_grupo
+
+            def rugir(self):
+                 """Emite um rugido intimidador."""
+            pass
+
+            def atacar_em_grupo(self):
+                """Realiza um ataque coordenado em grupo."""
+            pass

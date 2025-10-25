@@ -1,0 +1,22 @@
+class Missao:
+    def __init__(self, id_missao, objetivo, recompensa, status):
+        self.id_missao = id_missao
+        self.objetivo = objetivo
+        self.recompensa = recompensa
+        self.status = status
+
+    def aceitar(self):
+        """Aceita a missão."""
+        pass
+
+    def recusar(self):
+        """Recusa a missão."""
+        pass
+
+    def concluir(self):
+        """Conclui a missão com sucesso."""
+        pass
+
+    def falhar(self):
+        """Falha na conclusão da missão."""
+        pass

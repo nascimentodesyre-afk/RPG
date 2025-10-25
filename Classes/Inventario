@@ -1,0 +1,29 @@
+class Inventario:
+    def __init__(self, id_inventario, itens, capacidade_itens):
+        self.id_inventario = id_inventario
+        self.itens = itens
+        self.capacidade_itens = capacidade_itens
+
+    def adicionar_item(self, item):
+        """Adiciona um item ao inventário."""
+        pass
+
+    def remover_item(self, item):
+        """Remove um item do inventário."""
+        pass
+
+    def listar_itens(self):
+        """Lista todos os itens no inventário."""
+        pass
+
+    def obter_quantidade_moedas(self):
+        """Retorna a quantidade de moedas no inventário."""
+        pass
+
+    def remover_moeda(self):
+        """Remove moedas do inventário."""
+        pass
+
+    def adicionar_moeda(self):
+        """Adiciona moedas ao inventário."""
+        pass
